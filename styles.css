@@ -25,7 +25,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -144,7 +145,8 @@ h1 {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--line);
@@ -153,6 +155,13 @@ h1 {
   color: var(--ink);
   background: #fff;
   outline: none;
+}
+
+.field textarea {
+  min-height: 180px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.5;
 }
 
 .field input[type="file"] {
@@ -165,7 +174,8 @@ h1 {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: var(--navy-2);
   box-shadow: 0 0 0 3px rgba(11, 54, 124, 0.12);
 }
@@ -190,6 +200,10 @@ h1 {
 
 .wide-button {
   width: 100%;
+}
+
+.control-grid .wide {
+  grid-column: 1 / -1;
 }
 
 .primary:disabled,

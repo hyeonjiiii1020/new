@@ -81,6 +81,13 @@
               <span>시간표 사진</span>
               <input id="scheduleImageInput" type="file" accept="image/*">
             </label>
+
+            <button id="readScheduleBtn" class="secondary wide" type="button">사진에서 텍스트 읽기</button>
+
+            <label class="field wide">
+              <span>시간표 내용</span>
+              <textarea id="scheduleTextInput" rows="9" placeholder="사진에서 읽은 텍스트가 여기에 들어옵니다. 직접 붙여넣어도 됩니다.&#10;&#10;예시&#10;트랙경기&#10;08:00 | 10,000mW | 대학(남)/실업(남,여) | 결승&#10;10:00 | 110mH | 실업(남) | 10종(6)&#10;필드경기&#10;10:00 | 장대높이뛰기 | 실업(여) | 결승"></textarea>
+            </label>
           </div>
 
           <label class="check-row">
@@ -88,7 +95,7 @@
             <span>표지 포함</span>
           </label>
 
-          <button id="buildScheduleBtn" class="primary wide-button" type="button">시간표 만들기</button>
+          <button id="buildScheduleBtn" class="primary wide-button" type="button">재구성 시간표 만들기</button>
         </div>
 
         <div class="status-row">
@@ -135,6 +142,7 @@
       </section>
     </main>
 
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1,4 +1,5 @@
 const ROWS_PER_PAGE = 8;
+const SCHEDULE_ROWS_PER_PAGE = 11;
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1080;
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5173" : "";
@@ -17,6 +18,7 @@ const state = {
   manualSubtitle: false,
   schedule: {
     sourceCanvas: null,
+    rows: [],
     pages: []
   }
 };
@@ -51,6 +53,8 @@ const els = {
   cardPreview: $("#cardPreview"),
   scheduleTitleInput: $("#scheduleTitleInput"),
   scheduleImageInput: $("#scheduleImageInput"),
+  readScheduleBtn: $("#readScheduleBtn"),
+  scheduleTextInput: $("#scheduleTextInput"),
   scheduleCoverInput: $("#scheduleCoverInput"),
   buildScheduleBtn: $("#buildScheduleBtn"),
   schedulePreview: $("#schedulePreview"),
@@ -492,6 +496,7 @@ function setBusy(isBusy) {
 
 function setScheduleBusy(isBusy) {
   els.buildScheduleBtn.disabled = isBusy;
+  els.readScheduleBtn.disabled = isBusy;
   els.scheduleImageInput.disabled = isBusy;
 }
 
@@ -672,6 +677,138 @@ function bestScheduleCut(scores, target, min, max) {
   return best;
 }
 
+function cleanScheduleCell(value) {
+  return normalize(value)
+    .replace(/[“”〃]/g, '"')
+    .replace(/[｜│]/g, "|")
+    .replace(/\s*\|\s*/g, "|")
+    .replace(/^[-–—,.:;|]+/, "")
+    .replace(/[-–—,.:;|]+$/, "")
+    .trim();
+}
+
+function isDitto(value) {
+  const text = cleanScheduleCell(value);
+  return !text || /^["']+$/.test(text);
+}
+
+function normalizeScheduleText(value) {
+  return String(value || "")
+    .replace(/\r/g, "\n")
+    .replace(/[：]/g, ":")
+    .replace(/[｜│]/g, "|")
+    .replace(/[“”〃]/g, '"')
+    .replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+    .replace(/[Oo](?=\d:\d{2})/g, "0")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+}
+
+function parseScheduleLine(line, section, carry) {
+  const cleanLine = normalizeScheduleText(line);
+  const timeMatch = cleanLine.match(/(\d{1,2})\s*:\s*(\d{2})/);
+  if (!timeMatch) return null;
+
+  const time = `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`;
+  let rest = cleanLine.slice(timeMatch.index + timeMatch[0].length).trim();
+  rest = rest.replace(/^[-–—|,.:;]+/, "").trim();
+  let cells = rest.split(/\s*\|\s*|\t+|\s{2,}/).map(cleanScheduleCell).filter(Boolean);
+
+  let eventName = cells[0] || "";
+  let division = cells[1] || "";
+  let round = cells[2] || "";
+
+  if (cells.length < 3) {
+    const compact = cleanScheduleCell(rest);
+    const roundMatch = compact.match(/\s(결승|준결승|예선|\d+\s*조(?:\(\d+\))?|\d+\s*종(?:\(\d+\))?|\d+\s*-\s*\d+\s*\+\s*\d+)\s*$/);
+    round = roundMatch ? cleanScheduleCell(roundMatch[1]) : "";
+    const beforeRound = roundMatch ? compact.slice(0, roundMatch.index).trim() : compact;
+    const divisionMatch = beforeRound.match(/^(.+?)\s+((?:대학|실업|중학|고등|초등|일반|대학부|실업부|남|여|혼성|Mixed)[^|]*)$/i);
+
+    if (divisionMatch) {
+      eventName = cleanScheduleCell(divisionMatch[1]);
+      division = cleanScheduleCell(divisionMatch[2]);
+    } else {
+      const parts = beforeRound.split(/\s+/).map(cleanScheduleCell).filter(Boolean);
+      eventName = parts[0] || beforeRound;
+      division = parts.slice(1).join(" ");
+    }
+  }
+
+  if (isDitto(eventName)) eventName = carry.eventName;
+  if (isDitto(division)) division = carry.division;
+  if (isDitto(round)) round = carry.round;
+
+  if (!eventName && !division && !round) return null;
+
+  const row = {
+    section,
+    time,
+    eventName: eventName || carry.eventName,
+    division: division || carry.division,
+    round: round || carry.round
+  };
+
+  carry.eventName = row.eventName;
+  carry.division = row.division;
+  carry.round = row.round;
+  return row;
+}
+
+function parseScheduleText(value) {
+  const text = normalizeScheduleText(value);
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const rows = [];
+  let section = "트랙경기";
+  const carryBySection = {
+    "트랙경기": { eventName: "", division: "", round: "" },
+    "필드경기": { eventName: "", division: "", round: "" }
+  };
+
+  for (const line of lines) {
+    if (/트\s*랙/.test(line)) {
+      section = "트랙경기";
+      continue;
+    }
+    if (/필\s*드/.test(line)) {
+      section = "필드경기";
+      continue;
+    }
+    if (/경기시간표|시\s*간\s*표|시간\s+종목|종\s*목|부\s*별|라운드/.test(line) && !/\d{1,2}\s*:\s*\d{2}/.test(line)) {
+      continue;
+    }
+
+    const row = parseScheduleLine(line, section, carryBySection[section]);
+    if (row) rows.push(row);
+  }
+
+  return rows;
+}
+
+function buildSchedulePagesFromRows(rows) {
+  const pages = [];
+  if (els.scheduleCoverInput.checked) {
+    pages.push({ type: "cover" });
+  }
+
+  const orderedSections = [...new Set(rows.map((row) => row.section))];
+  for (const section of orderedSections) {
+    const sectionRows = rows.filter((row) => row.section === section);
+    const total = Math.max(1, Math.ceil(sectionRows.length / SCHEDULE_ROWS_PER_PAGE));
+    for (let index = 0; index < sectionRows.length; index += SCHEDULE_ROWS_PER_PAGE) {
+      pages.push({
+        type: "scheduleTable",
+        section,
+        part: Math.floor(index / SCHEDULE_ROWS_PER_PAGE) + 1,
+        total,
+        rows: sectionRows.slice(index, index + SCHEDULE_ROWS_PER_PAGE)
+      });
+    }
+  }
+
+  return pages;
+}
+
 function buildSchedulePagesFromCanvas(sourceCanvas) {
   const pages = [];
   if (els.scheduleCoverInput.checked) {
@@ -734,7 +871,7 @@ function renderScheduleEmptyCanvas() {
     color: "#062764",
     minSize: 46
   });
-  drawFitText(ctx, "사진을 업로드하면 미리보기가 표시됩니다.", CARD_WIDTH / 2, 590, 780, {
+  drawFitText(ctx, "사진에서 텍스트를 읽거나 시간표 내용을 붙여넣어주세요.", CARD_WIDTH / 2, 590, 840, {
     align: "center",
     size: 28,
     weight: 700,
@@ -751,26 +888,31 @@ function renderScheduleCoverCanvas() {
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
-  const source = state.schedule.sourceCanvas;
 
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
-  if (source) {
-    const scale = Math.max(CARD_WIDTH / source.width, CARD_HEIGHT / source.height);
-    const drawW = source.width * scale;
-    const drawH = source.height * scale;
-    ctx.save();
-    ctx.globalAlpha = 0.08;
-    ctx.drawImage(source, (CARD_WIDTH - drawW) / 2, (CARD_HEIGHT - drawH) / 2, drawW, drawH);
-    ctx.restore();
-    ctx.fillStyle = "rgba(255,255,255,0.88)";
-    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  }
-
   ctx.fillStyle = "#062764";
   ctx.fillRect(76, 86, 170, 10);
   ctx.fillRect(CARD_WIDTH - 246, CARD_HEIGHT - 98, 170, 10);
+
+  ctx.strokeStyle = "#edf1f5";
+  ctx.lineWidth = 2;
+  for (let y = 140; y <= 900; y += 86) {
+    ctx.beginPath();
+    ctx.moveTo(112, y);
+    ctx.lineTo(CARD_WIDTH - 112, y);
+    ctx.stroke();
+  }
+  for (let x = 160; x <= CARD_WIDTH - 160; x += 190) {
+    ctx.beginPath();
+    ctx.moveTo(x, 168);
+    ctx.lineTo(x, 862);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(255,255,255,0.88)";
+  ctx.fillRect(0, 210, CARD_WIDTH, 560);
 
   drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 414, 850, 62, {
     size: 56,
@@ -798,6 +940,104 @@ function renderScheduleCoverCanvas() {
   ctx.strokeStyle = "#f1f1f1";
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawScheduleCredit(ctx);
+  return canvas;
+}
+
+function renderScheduleTableCanvas(page) {
+  const canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH;
+  canvas.height = CARD_HEIGHT;
+  const ctx = canvas.getContext("2d");
+  const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
+  const sectionLabel = `${page.section}${page.total > 1 ? ` ${page.part}/${page.total}` : ""}`;
+  const tableX = 60;
+  const tableY = 258;
+  const tableW = 960;
+  const headerH = 58;
+  const rowH = 62;
+  const colW = [148, 272, 328, 212];
+  const headers = ["시간", "종목", "부별", "라운드"];
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  ctx.strokeStyle = "#f1f1f1";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+
+  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 76, 900, 34, {
+    size: 30,
+    weight: 800,
+    color: "#557c8c",
+    minSize: 22
+  });
+
+  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 142, 760, {
+    align: "center",
+    size: 56,
+    weight: 950,
+    color: "#062764",
+    minSize: 40
+  });
+
+  drawFitText(ctx, sectionLabel, CARD_WIDTH / 2, 205, 760, {
+    align: "center",
+    size: 28,
+    weight: 850,
+    color: "#557c8c",
+    minSize: 22
+  });
+
+  ctx.fillStyle = "#062764";
+  ctx.fillRect(tableX, tableY, tableW, headerH);
+
+  let x = tableX;
+  headers.forEach((header, index) => {
+    if (index > 0) {
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, tableY);
+      ctx.lineTo(x, tableY + headerH);
+      ctx.stroke();
+    }
+
+    drawFitText(ctx, header, x + colW[index] / 2, tableY + headerH / 2, colW[index] - 24, {
+      align: "center",
+      size: 28,
+      weight: 950,
+      color: "#ffffff",
+      minSize: 22
+    });
+    x += colW[index];
+  });
+
+  page.rows.forEach((row, rowIndex) => {
+    const y = tableY + headerH + rowIndex * rowH;
+    ctx.fillStyle = rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc";
+    ctx.fillRect(tableX, y, tableW, rowH);
+    ctx.strokeStyle = "#e7e7e7";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(tableX, y + rowH);
+    ctx.lineTo(tableX + tableW, y + rowH);
+    ctx.stroke();
+
+    const values = [row.time, row.eventName, row.division, row.round];
+    let cellX = tableX;
+    values.forEach((value, index) => {
+      const isLeft = index === 1 || index === 2;
+      drawFitText(ctx, value, isLeft ? cellX + 22 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 34, {
+        align: isLeft ? "left" : "center",
+        size: index === 0 ? 29 : 27,
+        weight: index === 0 || index === 1 ? 900 : 760,
+        color: "#101010",
+        minSize: 18
+      });
+      cellX += colW[index];
+    });
+  });
+
   drawScheduleCredit(ctx);
   return canvas;
 }
@@ -844,6 +1084,7 @@ function renderScheduleImageCanvas(page) {
 function renderScheduleCanvas(page) {
   if (!page) return renderScheduleEmptyCanvas();
   if (page.type === "cover") return renderScheduleCoverCanvas();
+  if (page.type === "scheduleTable") return renderScheduleTableCanvas(page);
   return renderScheduleImageCanvas(page);
 }
 
@@ -861,14 +1102,43 @@ function renderScheduleCard() {
 }
 
 function rebuildSchedulePages() {
-  if (!state.schedule.sourceCanvas) return;
-  state.schedule.pages = buildSchedulePagesFromCanvas(state.schedule.sourceCanvas);
+  const rows = parseScheduleText(els.scheduleTextInput.value);
+  state.schedule.rows = rows;
+  if (!rows.length) {
+    state.schedule.pages = [];
+    state.currentPage = 0;
+    renderScheduleCard();
+    setStatus("시간표 내용을 읽지 못했습니다. 시간표 내용을 확인해주세요.");
+    return;
+  }
+
+  state.schedule.pages = buildSchedulePagesFromRows(rows);
   state.currentPage = 0;
   renderScheduleCard();
-  setStatus(`${state.schedule.pages.length}장으로 시간표 카드가 준비되었습니다.`);
+  setStatus(`${rows.length}개 경기, ${state.schedule.pages.length}장으로 재구성했습니다.`);
 }
 
 async function buildScheduleFromInput() {
+  if (!normalize(els.scheduleTextInput.value)) {
+    setStatus("사진에서 텍스트를 읽거나 시간표 내용을 붙여넣어주세요.");
+    return;
+  }
+
+  setMode("schedule");
+  setScheduleBusy(true);
+  setStatus("시간표를 카드뉴스 양식으로 재구성하는 중입니다.");
+
+  try {
+    rebuildSchedulePages();
+  } catch (error) {
+    console.error(error);
+    setStatus(`시간표 카드를 만들지 못했습니다. ${error.message}`);
+  } finally {
+    setScheduleBusy(false);
+  }
+}
+
+async function readScheduleTextFromImage() {
   const file = els.scheduleImageInput.files?.[0];
   if (!file) {
     setStatus("시간표 사진을 먼저 선택해주세요.");
@@ -877,16 +1147,26 @@ async function buildScheduleFromInput() {
 
   setMode("schedule");
   setScheduleBusy(true);
-  setStatus("시간표 사진을 카드뉴스용으로 정리하는 중입니다.");
+  setStatus("사진에서 시간표 텍스트를 읽는 중입니다. 잠시만 기다려주세요.");
 
   try {
-    const image = await loadImageFromFile(file);
-    const baseCanvas = canvasFromImage(image);
-    state.schedule.sourceCanvas = trimScheduleCanvas(baseCanvas);
-    rebuildSchedulePages();
+    if (window.Tesseract?.recognize) {
+      const result = await window.Tesseract.recognize(file, "kor+eng", {
+        logger: (message) => {
+          if (message.status === "recognizing text" && typeof message.progress === "number") {
+            setStatus(`사진에서 시간표 텍스트를 읽는 중입니다. ${Math.round(message.progress * 100)}%`);
+          }
+        }
+      });
+      els.scheduleTextInput.value = normalizeScheduleText(result?.data?.text || "");
+      setStatus("텍스트를 읽었습니다. 내용이 맞는지 확인한 뒤 재구성 시간표 만들기를 눌러주세요.");
+      return;
+    }
+
+    setStatus("텍스트 읽기 기능을 불러오지 못했습니다. 시간표 내용을 직접 붙여넣어주세요.");
   } catch (error) {
     console.error(error);
-    setStatus(`시간표 카드를 만들지 못했습니다. ${error.message}`);
+    setStatus("사진 읽기에 실패했습니다. 시간표 내용을 직접 붙여넣어주세요.");
   } finally {
     setScheduleBusy(false);
   }
@@ -1245,16 +1525,27 @@ els.scheduleTitleInput.addEventListener("input", () => {
   }
 });
 
+els.scheduleTextInput.addEventListener("input", () => {
+  if (state.mode === "schedule" && state.schedule.pages.length) {
+    rebuildSchedulePages();
+  }
+});
+
 els.scheduleCoverInput.addEventListener("change", () => {
-  if (state.schedule.sourceCanvas) {
+  if (normalize(els.scheduleTextInput.value)) {
     rebuildSchedulePages();
   }
 });
 
 els.scheduleImageInput.addEventListener("change", () => {
   if (els.scheduleImageInput.files?.[0]) {
-    buildScheduleFromInput();
+    setMode("schedule");
+    setStatus("사진을 선택했습니다. 사진에서 텍스트 읽기를 눌러주세요.");
   }
+});
+
+els.readScheduleBtn.addEventListener("click", () => {
+  readScheduleTextFromImage();
 });
 
 els.buildScheduleBtn.addEventListener("click", () => {
