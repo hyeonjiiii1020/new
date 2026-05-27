@@ -17,50 +17,78 @@
           <span class="size-badge">1080 x 1080</span>
         </div>
 
-        <div class="control-grid">
-          <label class="field wide">
-            <span>대회</span>
-            <select id="tournamentSelect">
-              <option>대회 목록 불러오는 중...</option>
-            </select>
-          </label>
-
-          <label class="field wide">
-            <span>실시간 경기</span>
-            <select id="eventSelect">
-              <option>불러오는 중...</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>검색</span>
-            <input id="eventSearch" type="search" placeholder="100m, 결승, 여자부">
-          </label>
-
-          <button id="refreshBtn" class="secondary" type="button">새로고침</button>
-          <button id="loadBtn" class="primary" type="button">결과 불러오기</button>
+        <div class="mode-tabs" role="tablist" aria-label="카드 종류">
+          <button id="resultModeBtn" class="mode-tab active" type="button">결과 카드</button>
+          <button id="scheduleModeBtn" class="mode-tab" type="button">시간표 카드</button>
         </div>
 
-        <div class="control-grid title-grid">
-          <label class="field wide">
-            <span>제목</span>
-            <input id="titleInput" type="text">
-          </label>
-          <label class="field wide">
-            <span>부제</span>
-            <input id="subtitleInput" type="text">
-          </label>
+        <div id="resultControls" class="mode-panel">
+          <div class="control-grid">
+            <label class="field wide">
+              <span>대회</span>
+              <select id="tournamentSelect">
+                <option>대회 목록 불러오는 중...</option>
+              </select>
+            </label>
+
+            <label class="field wide">
+              <span>실시간 경기</span>
+              <select id="eventSelect">
+                <option>불러오는 중...</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>검색</span>
+              <input id="eventSearch" type="search" placeholder="100m, 결승, 여자부">
+            </label>
+
+            <button id="refreshBtn" class="secondary" type="button">새로고침</button>
+            <button id="loadBtn" class="primary" type="button">결과 불러오기</button>
+          </div>
+
+          <div class="control-grid title-grid">
+            <label class="field wide">
+              <span>제목</span>
+              <input id="titleInput" type="text">
+            </label>
+            <label class="field wide">
+              <span>부제</span>
+              <input id="subtitleInput" type="text">
+            </label>
+          </div>
+
+          <div class="toggles">
+            <label>
+              <input id="groupByHeat" type="checkbox" checked>
+              <span>예선/준결승 조별 페이지 나누기</span>
+            </label>
+            <label>
+              <input id="hideNonFinishers" type="checkbox" checked>
+              <span>DNS/DNF 제외</span>
+            </label>
+          </div>
         </div>
 
-        <div class="toggles">
-          <label>
-            <input id="groupByHeat" type="checkbox" checked>
-            <span>예선/준결승 조별 페이지 나누기</span>
+        <div id="scheduleControls" class="mode-panel hidden">
+          <div class="control-grid">
+            <label class="field wide">
+              <span>대회명</span>
+              <input id="scheduleTitleInput" type="text" placeholder="제30회 KTFL 전국실업육상경기선수권대회">
+            </label>
+
+            <label class="field wide">
+              <span>시간표 사진</span>
+              <input id="scheduleImageInput" type="file" accept="image/*">
+            </label>
+          </div>
+
+          <label class="check-row">
+            <input id="scheduleCoverInput" type="checkbox" checked>
+            <span>표지 포함</span>
           </label>
-          <label>
-            <input id="hideNonFinishers" type="checkbox" checked>
-            <span>DNS/DNF 제외</span>
-          </label>
+
+          <button id="buildScheduleBtn" class="primary wide-button" type="button">시간표 만들기</button>
         </div>
 
         <div class="status-row">
@@ -98,6 +126,10 @@
               <tbody id="cardRows"></tbody>
             </table>
             <p class="card-credit">한국육상매거진</p>
+          </article>
+
+          <article id="schedulePreview" class="schedule-card hidden" aria-label="시간표 카드 미리보기">
+            <img id="schedulePreviewImage" alt="시간표 카드 미리보기">
           </article>
         </div>
       </section>

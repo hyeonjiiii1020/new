@@ -1,9 +1,10 @@
-const ROWS_PER_PAGE = 7;
+const ROWS_PER_PAGE = 8;
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1080;
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5173" : "";
 
 const state = {
+  mode: "result",
   tournaments: [],
   selectedTournament: null,
   events: [],
@@ -13,12 +14,20 @@ const state = {
   pages: [],
   currentPage: 0,
   manualTitle: false,
-  manualSubtitle: false
+  manualSubtitle: false,
+  schedule: {
+    sourceCanvas: null,
+    pages: []
+  }
 };
 
 const $ = (selector) => document.querySelector(selector);
 
 const els = {
+  resultModeBtn: $("#resultModeBtn"),
+  scheduleModeBtn: $("#scheduleModeBtn"),
+  resultControls: $("#resultControls"),
+  scheduleControls: $("#scheduleControls"),
   tournamentSelect: $("#tournamentSelect"),
   eventSelect: $("#eventSelect"),
   eventSearch: $("#eventSearch"),
@@ -38,7 +47,14 @@ const els = {
   cardTitle: $("#cardTitle"),
   cardSubtitle: $("#cardSubtitle"),
   recordHeader: $("#recordHeader"),
-  cardRows: $("#cardRows")
+  cardRows: $("#cardRows"),
+  cardPreview: $("#cardPreview"),
+  scheduleTitleInput: $("#scheduleTitleInput"),
+  scheduleImageInput: $("#scheduleImageInput"),
+  scheduleCoverInput: $("#scheduleCoverInput"),
+  buildScheduleBtn: $("#buildScheduleBtn"),
+  schedulePreview: $("#schedulePreview"),
+  schedulePreviewImage: $("#schedulePreviewImage")
 };
 
 function apiUrl(path) {
@@ -52,8 +68,21 @@ const sampleRows = [
   { rank: "4", name: "김소은", team: "가평군청", record: "12.02", wind: "2.1", heat: "" }
 ];
 
+const scheduleBody = {
+  x: 54,
+  y: 44,
+  width: 972,
+  height: 968
+};
+
 function setStatus(message) {
   els.statusText.textContent = message;
+}
+
+function setResultStatus(message) {
+  if (state.mode === "result") {
+    setStatus(message);
+  }
 }
 
 function normalize(value) {
@@ -147,6 +176,29 @@ function filenameSafe(value) {
     .slice(0, 80);
 }
 
+function setMode(mode) {
+  state.mode = mode;
+  els.resultModeBtn.classList.toggle("active", mode === "result");
+  els.scheduleModeBtn.classList.toggle("active", mode === "schedule");
+  els.resultControls.classList.toggle("hidden", mode !== "result");
+  els.scheduleControls.classList.toggle("hidden", mode !== "schedule");
+  els.cardPreview.classList.toggle("hidden", mode !== "result");
+  els.schedulePreview.classList.toggle("hidden", mode !== "schedule");
+
+  if (mode === "result") {
+    renderCard();
+  } else {
+    if (!state.schedule.pages.length) {
+      setStatus("대회명을 입력하고 시간표 사진을 선택해주세요.");
+    }
+    renderScheduleCard();
+  }
+}
+
+function activeSchedulePage() {
+  return state.schedule.pages[state.currentPage] || null;
+}
+
 function eventMatches(event, query) {
   if (!query) return true;
   const haystack = `${event.eventName} ${event.division} ${event.round} ${event.status}`.toLowerCase();
@@ -198,7 +250,7 @@ function renderEventOptions() {
 
 async function loadTournaments() {
   setBusy(true);
-  setStatus("대회 목록을 불러오는 중입니다.");
+  setResultStatus("대회 목록을 불러오는 중입니다.");
 
   try {
     const response = await fetch(apiUrl("/api/tournaments"));
@@ -229,7 +281,7 @@ async function loadEvents() {
   if (!state.selectedTournament) return;
 
   setBusy(true);
-  setStatus(`${state.selectedTournament.name} 경기 목록을 불러오는 중입니다.`);
+  setResultStatus(`${state.selectedTournament.name} 경기 목록을 불러오는 중입니다.`);
 
   try {
     const response = await fetch(apiUrl(`/api/events?tournament_id=${encodeURIComponent(state.selectedTournament.id)}`));
@@ -258,7 +310,7 @@ async function loadEvents() {
       applyDefaultText(true);
       buildPages();
       renderCard();
-      setStatus(`${state.selectedTournament.name}에서 불러올 수 있는 실시간 경기가 없습니다.`);
+      setResultStatus(`${state.selectedTournament.name}에서 불러올 수 있는 실시간 경기가 없습니다.`);
     }
   } catch (error) {
     console.error(error);
@@ -275,7 +327,7 @@ async function loadSelectedResult() {
 
   state.selectedEvent = selected;
   setBusy(true);
-  setStatus(`${state.selectedTournament?.name || "선택 대회"} · ${selected.label} 결과를 불러오는 중입니다.`);
+  setResultStatus(`${state.selectedTournament?.name || "선택 대회"} · ${selected.label} 결과를 불러오는 중입니다.`);
 
   const params = new URLSearchParams(selected.params);
   params.set("tournament_id", state.selectedTournament?.id || selected.tournament_id || "");
@@ -288,10 +340,10 @@ async function loadSelectedResult() {
     applyDefaultText();
     buildPages();
     renderCard();
-    setStatus(`${payload.tournament?.name || state.selectedTournament?.name || ""} · ${selected.label} 결과를 불러왔습니다.`);
+    setResultStatus(`${payload.tournament?.name || state.selectedTournament?.name || ""} · ${selected.label} 결과를 불러왔습니다.`);
   } catch (error) {
     console.error(error);
-    setStatus(`결과를 불러오지 못했습니다. ${error.message}`);
+    setResultStatus(`결과를 불러오지 못했습니다. ${error.message}`);
   } finally {
     setBusy(false);
   }
@@ -312,7 +364,7 @@ function renderSample(message) {
   applyDefaultText(true);
   buildPages();
   renderCard();
-  setStatus(message);
+  setResultStatus(message);
 }
 
 function applyDefaultText(force = false) {
@@ -378,7 +430,9 @@ function buildPages() {
   }
 
   state.currentPage = Math.min(state.currentPage, state.pages.length - 1);
-  els.rowCount.textContent = `${rows.length}명`;
+  if (state.mode === "result") {
+    els.rowCount.textContent = `${rows.length}명`;
+  }
 }
 
 function pageTitle(page = currentPage()) {
@@ -421,16 +475,24 @@ function renderCard() {
     });
   }
 
-  els.pageInfo.textContent = `${state.currentPage + 1} / ${state.pages.length}`;
-  els.prevPage.disabled = state.currentPage === 0;
-  els.nextPage.disabled = state.currentPage >= state.pages.length - 1;
-  els.downloadCurrent.disabled = !page.rows.length;
-  els.downloadAll.disabled = !state.pages.some((item) => item.rows.length);
+  if (state.mode === "result") {
+    els.rowCount.textContent = `${displayRows().length}명`;
+    els.pageInfo.textContent = `${state.currentPage + 1} / ${state.pages.length}`;
+    els.prevPage.disabled = state.currentPage === 0;
+    els.nextPage.disabled = state.currentPage >= state.pages.length - 1;
+    els.downloadCurrent.disabled = !page.rows.length;
+    els.downloadAll.disabled = !state.pages.some((item) => item.rows.length);
+  }
 }
 
 function setBusy(isBusy) {
   els.refreshBtn.disabled = isBusy;
   els.loadBtn.disabled = isBusy;
+}
+
+function setScheduleBusy(isBusy) {
+  els.buildScheduleBtn.disabled = isBusy;
+  els.scheduleImageInput.disabled = isBusy;
 }
 
 function roundedRect(ctx, x, y, width, height, radius) {
@@ -498,6 +560,338 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
   });
 }
 
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("이미지를 읽지 못했습니다."));
+    };
+    image.src = url;
+  });
+}
+
+function canvasFromImage(image) {
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const scale = Math.min(1, 2600 / Math.max(sourceWidth, sourceHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function trimScheduleCanvas(canvas) {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  const { data } = ctx.getImageData(0, 0, width, height);
+  const step = Math.max(2, Math.floor(Math.max(width, height) / 700));
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const index = (y * width + x) * 4;
+      const lightness = (data[index] + data[index + 1] + data[index + 2]) / 3;
+      if (lightness > 185) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (minX >= maxX || minY >= maxY) {
+    return canvas;
+  }
+
+  const pad = Math.round(Math.max(width, height) * 0.01);
+  const sx = Math.max(0, minX - pad);
+  const sy = Math.max(0, minY - pad);
+  const sw = Math.min(width - sx, maxX - minX + pad * 2);
+  const sh = Math.min(height - sy, maxY - minY + pad * 2);
+  const output = document.createElement("canvas");
+  output.width = sw;
+  output.height = sh;
+  output.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return output;
+}
+
+function scheduleRowScores(canvas) {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  const { data } = ctx.getImageData(0, 0, width, height);
+  const sampleX = Math.max(3, Math.floor(width / 260));
+  const scores = new Uint16Array(height);
+
+  for (let y = 0; y < height; y += 1) {
+    let score = 0;
+    for (let x = 0; x < width; x += sampleX) {
+      const index = (y * width + x) * 4;
+      const lightness = (data[index] + data[index + 1] + data[index + 2]) / 3;
+      if (lightness < 170) {
+        score += 1;
+      }
+    }
+    scores[y] = score;
+  }
+
+  return scores;
+}
+
+function bestScheduleCut(scores, target, min, max) {
+  let best = target;
+  let bestScore = Number.POSITIVE_INFINITY;
+  const start = Math.max(1, min);
+  const end = Math.min(scores.length - 2, max);
+
+  for (let y = start; y <= end; y += 1) {
+    let score = 0;
+    for (let offset = -4; offset <= 4; offset += 1) {
+      score += scores[y + offset] || 0;
+    }
+    const weighted = score + Math.abs(y - target) * 0.04;
+    if (weighted < bestScore) {
+      best = y;
+      bestScore = weighted;
+    }
+  }
+
+  return best;
+}
+
+function buildSchedulePagesFromCanvas(sourceCanvas) {
+  const pages = [];
+  if (els.scheduleCoverInput.checked) {
+    pages.push({ type: "cover" });
+  }
+
+  const sourceWidth = sourceCanvas.width;
+  const sourceHeight = sourceCanvas.height;
+  const scale = scheduleBody.width / sourceWidth;
+  const maxSliceHeight = Math.floor(scheduleBody.height / scale);
+  const minSliceHeight = Math.floor(maxSliceHeight * 0.62);
+  const scores = scheduleRowScores(sourceCanvas);
+  let y = 0;
+
+  while (y < sourceHeight) {
+    const remaining = sourceHeight - y;
+    if (remaining <= maxSliceHeight) {
+      pages.push({ type: "schedule", y, height: remaining });
+      break;
+    }
+
+    const target = Math.min(sourceHeight - 1, y + maxSliceHeight);
+    const min = Math.min(sourceHeight - 1, y + minSliceHeight);
+    const max = Math.min(sourceHeight - 1, y + Math.floor(maxSliceHeight * 1.08));
+    let cut = bestScheduleCut(scores, target, min, max);
+    if (cut <= y + Math.floor(maxSliceHeight * 0.45)) {
+      cut = target;
+    }
+
+    pages.push({ type: "schedule", y, height: cut - y });
+    y = cut;
+  }
+
+  return pages;
+}
+
+function drawScheduleCredit(ctx) {
+  drawFitText(ctx, "한국육상매거진", CARD_WIDTH - 54, CARD_HEIGHT - 31, 360, {
+    align: "right",
+    size: 22,
+    weight: 700,
+    color: "#8a929d",
+    minSize: 18
+  });
+}
+
+function renderScheduleEmptyCanvas() {
+  const canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH;
+  canvas.height = CARD_HEIGHT;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  ctx.strokeStyle = "#f1f1f1";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawCenteredMultiline(ctx, "시간표 카드", CARD_WIDTH / 2, 484, 800, 68, {
+    size: 72,
+    weight: 950,
+    color: "#062764",
+    minSize: 46
+  });
+  drawFitText(ctx, "사진을 업로드하면 미리보기가 표시됩니다.", CARD_WIDTH / 2, 590, 780, {
+    align: "center",
+    size: 28,
+    weight: 700,
+    color: "#8a929d",
+    minSize: 22
+  });
+  drawScheduleCredit(ctx);
+  return canvas;
+}
+
+function renderScheduleCoverCanvas() {
+  const canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH;
+  canvas.height = CARD_HEIGHT;
+  const ctx = canvas.getContext("2d");
+  const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
+  const source = state.schedule.sourceCanvas;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+
+  if (source) {
+    const scale = Math.max(CARD_WIDTH / source.width, CARD_HEIGHT / source.height);
+    const drawW = source.width * scale;
+    const drawH = source.height * scale;
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    ctx.drawImage(source, (CARD_WIDTH - drawW) / 2, (CARD_HEIGHT - drawH) / 2, drawW, drawH);
+    ctx.restore();
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  }
+
+  ctx.fillStyle = "#062764";
+  ctx.fillRect(76, 86, 170, 10);
+  ctx.fillRect(CARD_WIDTH - 246, CARD_HEIGHT - 98, 170, 10);
+
+  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 414, 850, 62, {
+    size: 56,
+    weight: 950,
+    color: "#062764",
+    minSize: 34
+  });
+
+  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 578, 820, {
+    align: "center",
+    size: 88,
+    weight: 950,
+    color: "#101419",
+    minSize: 58
+  });
+
+  drawFitText(ctx, "TIMETABLE", CARD_WIDTH / 2, 668, 620, {
+    align: "center",
+    size: 24,
+    weight: 800,
+    color: "#557c8c",
+    minSize: 18
+  });
+
+  ctx.strokeStyle = "#f1f1f1";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawScheduleCredit(ctx);
+  return canvas;
+}
+
+function renderScheduleImageCanvas(page) {
+  const canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH;
+  canvas.height = CARD_HEIGHT;
+  const ctx = canvas.getContext("2d");
+  const source = state.schedule.sourceCanvas;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  ctx.strokeStyle = "#f1f1f1";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+
+  if (!source || !page) {
+    drawScheduleCredit(ctx);
+    return canvas;
+  }
+
+  const scale = scheduleBody.width / source.width;
+  const drawHeight = Math.min(scheduleBody.height, page.height * scale);
+  ctx.drawImage(
+    source,
+    0,
+    page.y,
+    source.width,
+    page.height,
+    scheduleBody.x,
+    scheduleBody.y,
+    scheduleBody.width,
+    drawHeight
+  );
+
+  ctx.strokeStyle = "#dfe4ea";
+  ctx.lineWidth = 1.4;
+  ctx.strokeRect(scheduleBody.x, scheduleBody.y, scheduleBody.width, drawHeight);
+  drawScheduleCredit(ctx);
+  return canvas;
+}
+
+function renderScheduleCanvas(page) {
+  if (!page) return renderScheduleEmptyCanvas();
+  if (page.type === "cover") return renderScheduleCoverCanvas();
+  return renderScheduleImageCanvas(page);
+}
+
+function renderScheduleCard() {
+  const pages = state.schedule.pages;
+  const page = activeSchedulePage();
+  const previewCanvas = renderScheduleCanvas(page);
+  els.schedulePreviewImage.src = previewCanvas.toDataURL("image/png");
+  els.pageInfo.textContent = pages.length ? `${state.currentPage + 1} / ${pages.length}` : "0 / 0";
+  els.prevPage.disabled = state.currentPage <= 0;
+  els.nextPage.disabled = state.currentPage >= pages.length - 1;
+  els.downloadCurrent.disabled = !pages.length;
+  els.downloadAll.disabled = !pages.length;
+  els.rowCount.textContent = `${pages.length}장`;
+}
+
+function rebuildSchedulePages() {
+  if (!state.schedule.sourceCanvas) return;
+  state.schedule.pages = buildSchedulePagesFromCanvas(state.schedule.sourceCanvas);
+  state.currentPage = 0;
+  renderScheduleCard();
+  setStatus(`${state.schedule.pages.length}장으로 시간표 카드가 준비되었습니다.`);
+}
+
+async function buildScheduleFromInput() {
+  const file = els.scheduleImageInput.files?.[0];
+  if (!file) {
+    setStatus("시간표 사진을 먼저 선택해주세요.");
+    return;
+  }
+
+  setMode("schedule");
+  setScheduleBusy(true);
+  setStatus("시간표 사진을 카드뉴스용으로 정리하는 중입니다.");
+
+  try {
+    const image = await loadImageFromFile(file);
+    const baseCanvas = canvasFromImage(image);
+    state.schedule.sourceCanvas = trimScheduleCanvas(baseCanvas);
+    rebuildSchedulePages();
+  } catch (error) {
+    console.error(error);
+    setStatus(`시간표 카드를 만들지 못했습니다. ${error.message}`);
+  } finally {
+    setScheduleBusy(false);
+  }
+}
+
 function renderCanvas(page) {
   const canvas = document.createElement("canvas");
   canvas.width = CARD_WIDTH;
@@ -525,10 +919,10 @@ function renderCanvas(page) {
   });
 
   const tableX = 60;
-  const tableY = 250;
+  const tableY = 246;
   const tableW = 960;
-  const headerH = 66;
-  const rowH = 84;
+  const headerH = 62;
+  const rowH = 80;
   const colW = [118, 178, 432, 232];
   const headers = ["순위", "성명", "소속", isCombinedOverallEvent() ? "총점" : "기록"];
 
@@ -547,7 +941,7 @@ function renderCanvas(page) {
     }
     drawFitText(ctx, header, x + colW[index] / 2, tableY + headerH / 2, colW[index] - 24, {
       align: "center",
-      size: 34,
+      size: 32,
       weight: 950,
       color: "#ffffff",
       minSize: 26
@@ -574,7 +968,7 @@ function renderCanvas(page) {
       const isRecord = index === 3;
       drawFitText(ctx, value, isLeft ? cellX + 24 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 32, {
         align: isLeft ? "left" : "center",
-        size: isRecord ? 32 : 36,
+        size: isRecord ? 30 : 34,
         weight: index === 2 ? 760 : 900,
         color: "#101010",
         minSize: index === 2 ? 24 : 25
@@ -622,6 +1016,18 @@ async function downloadPage(page, index) {
   const pageNo = String(index + 1).padStart(2, "0");
   const blob = await canvasToBlob(renderCanvas(page));
   downloadBlob(blob, `${pageNo}_${title || "result_card"}.png`);
+}
+
+function scheduleFilename(page, index) {
+  const title = filenameSafe(normalize(els.scheduleTitleInput.value) || "경기시간표");
+  const pageNo = String(index + 1).padStart(2, "0");
+  const suffix = page?.type === "cover" ? "표지" : "시간표";
+  return `${pageNo}_${title}_${suffix}.png`;
+}
+
+async function downloadSchedulePage(page, index) {
+  const blob = await canvasToBlob(renderScheduleCanvas(page));
+  downloadBlob(blob, scheduleFilename(page, index));
 }
 
 function makeCrcTable() {
@@ -762,6 +1168,44 @@ async function downloadAllPages() {
   }
 }
 
+async function downloadAllSchedulePages() {
+  const pages = state.schedule.pages.map((page, index) => ({ page, index }));
+  if (!pages.length) return;
+
+  els.downloadAll.disabled = true;
+  els.downloadCurrent.disabled = true;
+  setStatus(`${pages.length}개 시간표 카드를 ZIP으로 묶는 중입니다.`);
+
+  try {
+    const files = [];
+    for (const { page, index } of pages) {
+      files.push({
+        name: scheduleFilename(page, index),
+        blob: await canvasToBlob(renderScheduleCanvas(page))
+      });
+    }
+    const zip = await createZip(files);
+    const zipName = `${filenameSafe(normalize(els.scheduleTitleInput.value) || "경기시간표")}_시간표.zip`;
+    downloadBlob(zip, zipName);
+    setStatus(`${files.length}개 시간표 카드를 ZIP으로 저장했습니다.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`전체 저장에 실패했습니다. ${error.message}`);
+  } finally {
+    renderScheduleCard();
+  }
+}
+
+els.resultModeBtn.addEventListener("click", () => {
+  state.currentPage = Math.min(state.currentPage, state.pages.length - 1);
+  setMode("result");
+});
+
+els.scheduleModeBtn.addEventListener("click", () => {
+  state.currentPage = Math.min(state.currentPage, Math.max(0, state.schedule.pages.length - 1));
+  setMode("schedule");
+});
+
 els.eventSearch.addEventListener("input", () => {
   renderEventOptions();
 });
@@ -795,6 +1239,28 @@ els.subtitleInput.addEventListener("input", () => {
   renderCard();
 });
 
+els.scheduleTitleInput.addEventListener("input", () => {
+  if (state.mode === "schedule") {
+    renderScheduleCard();
+  }
+});
+
+els.scheduleCoverInput.addEventListener("change", () => {
+  if (state.schedule.sourceCanvas) {
+    rebuildSchedulePages();
+  }
+});
+
+els.scheduleImageInput.addEventListener("change", () => {
+  if (els.scheduleImageInput.files?.[0]) {
+    buildScheduleFromInput();
+  }
+});
+
+els.buildScheduleBtn.addEventListener("click", () => {
+  buildScheduleFromInput();
+});
+
 [els.groupByHeat, els.hideNonFinishers].forEach((input) => {
   input.addEventListener("change", () => {
     buildPages();
@@ -804,17 +1270,30 @@ els.subtitleInput.addEventListener("input", () => {
 
 els.prevPage.addEventListener("click", () => {
   state.currentPage = Math.max(0, state.currentPage - 1);
-  renderCard();
+  if (state.mode === "schedule") {
+    renderScheduleCard();
+  } else {
+    renderCard();
+  }
 });
 
 els.nextPage.addEventListener("click", () => {
-  state.currentPage = Math.min(state.pages.length - 1, state.currentPage + 1);
-  renderCard();
+  const maxPage = Math.max(0, state.mode === "schedule" ? state.schedule.pages.length - 1 : state.pages.length - 1);
+  state.currentPage = Math.min(maxPage, state.currentPage + 1);
+  if (state.mode === "schedule") {
+    renderScheduleCard();
+  } else {
+    renderCard();
+  }
 });
 
 els.downloadCurrent.addEventListener("click", async () => {
   try {
-    await downloadPage(currentPage(), state.currentPage);
+    if (state.mode === "schedule") {
+      await downloadSchedulePage(activeSchedulePage(), state.currentPage);
+    } else {
+      await downloadPage(currentPage(), state.currentPage);
+    }
   } catch (error) {
     console.error(error);
     setStatus(`현재 페이지 저장에 실패했습니다. ${error.message}`);
@@ -822,7 +1301,11 @@ els.downloadCurrent.addEventListener("click", async () => {
 });
 
 els.downloadAll.addEventListener("click", () => {
-  downloadAllPages();
+  if (state.mode === "schedule") {
+    downloadAllSchedulePages();
+  } else {
+    downloadAllPages();
+  }
 });
 
 renderSample("샘플 카드가 준비되었습니다.");

@@ -87,6 +87,36 @@ h1 {
   font-weight: 800;
 }
 
+.mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f2f5f8;
+}
+
+.mode-tab {
+  min-height: 40px;
+  border-radius: 6px;
+  color: #445362;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.mode-tab.active {
+  color: #fff;
+  background: var(--navy);
+}
+
+.mode-panel.hidden,
+.hidden {
+  display: none;
+}
+
 .control-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -125,6 +155,15 @@ h1 {
   outline: none;
 }
 
+.field input[type="file"] {
+  display: grid;
+  align-items: center;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .field input:focus,
 .field select:focus {
   border-color: var(--navy-2);
@@ -147,6 +186,10 @@ h1 {
 .secondary {
   color: var(--navy);
   background: #e9eef5;
+}
+
+.wide-button {
+  width: 100%;
 }
 
 .primary:disabled,
@@ -176,6 +219,22 @@ h1 {
 }
 
 .toggles input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--navy);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+  color: #333f4d;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.check-row input {
   width: 18px;
   height: 18px;
   accent-color: var(--navy);
@@ -244,7 +303,7 @@ h1 {
   position: relative;
   width: 540px;
   height: 540px;
-  padding: 30px 30px 44px;
+  padding: 24px 30px 38px;
   background: #fff;
   border: 1px solid #f2f2f2;
   box-shadow: 0 24px 70px rgba(12, 25, 42, 0.14);
@@ -257,7 +316,7 @@ h1 {
 .card-head h2 {
   margin: 0;
   color: var(--navy);
-  font-size: 32px;
+  font-size: 30px;
   line-height: 1.14;
   font-weight: 950;
   letter-spacing: 0;
@@ -265,9 +324,9 @@ h1 {
 }
 
 .card-head p {
-  margin: 14px 0 0;
+  margin: 9px 0 0;
   color: #557c8c;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
   word-break: keep-all;
@@ -275,19 +334,19 @@ h1 {
 
 .result-table {
   width: 100%;
-  margin-top: 30px;
+  margin-top: 19px;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .result-table th {
-  height: 40px;
+  height: 36px;
   padding: 0 10px;
   color: #fff;
   background: var(--navy);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 950;
   text-align: center;
 }
@@ -310,7 +369,7 @@ h1 {
 }
 
 .result-table td {
-  height: 47px;
+  height: 40px;
   padding: 0 10px;
   border-bottom: 1px solid #e7e7e7;
   color: #101010;
@@ -327,7 +386,7 @@ h1 {
 }
 
 .result-table td:nth-child(4) {
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .result-table td:nth-child(3) {
@@ -349,12 +408,28 @@ h1 {
 .card-credit {
   position: absolute;
   right: 30px;
-  bottom: 17px;
+  bottom: 14px;
   margin: 0;
   color: #8a929d;
   font-size: 12px;
   font-weight: 800;
   line-height: 1;
+}
+
+.schedule-card {
+  width: 540px;
+  height: 540px;
+  background: #fff;
+  border: 1px solid #f2f2f2;
+  box-shadow: 0 24px 70px rgba(12, 25, 42, 0.14);
+}
+
+.schedule-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
 }
 
 .empty {
@@ -388,28 +463,37 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .mode-tabs {
+    grid-template-columns: 1fr;
+  }
+
   .result-card {
-    width: 100%;
-    max-width: 540px;
-    height: auto;
-    aspect-ratio: 1 / 1;
-    padding: 7vw 5vw;
+    width: 540px;
+    max-width: none;
+    height: 540px;
+    padding: 24px 30px 38px;
   }
 
   .card-head h2 {
-    font-size: clamp(25px, 7vw, 35px);
+    font-size: 30px;
   }
 
   .card-head p {
-    font-size: clamp(13px, 3.6vw, 17px);
+    font-size: 14px;
   }
 
   .result-table {
-    font-size: clamp(13px, 3.6vw, 18px);
+    margin-top: 16px;
+    font-size: 17px;
   }
 
   .result-table th,
   .result-table td {
     padding: 0 6px;
+  }
+
+  .schedule-card {
+    width: 540px;
+    height: 540px;
   }
 }
