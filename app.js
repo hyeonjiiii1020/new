@@ -293,7 +293,12 @@ async function loadEvents() {
     if (!response.ok) throw new Error(payload.detail || payload.error || "목록 요청 실패");
 
     state.events = payload.events || [];
-    const preferred = state.events.find((event) => event.round === "결승" && event.status.includes("완료")) || state.events[0] || null;
+    const preferred =
+      state.events.find((event) => event.round === "결승" && /완료|순위/.test(event.status)) ||
+      state.events.find((event) => event.round === "결승") ||
+      state.events.find((event) => event.status.includes("완료")) ||
+      state.events[0] ||
+      null;
     state.selectedEvent = preferred;
     renderEventOptions();
 
@@ -356,12 +361,12 @@ async function loadSelectedResult() {
 function renderSample(message) {
   state.result = {
     meta: {
-      tournament: "제80회 전국육상경기선수권대회",
-      place: "정선",
+      tournament: "2026 밀양아리랑 전국육상경기대회",
+      place: "밀양",
       eventName: "100m",
       division: "여자부",
       round: "결승",
-      date: "2026-05-11"
+      date: "2026-06-05"
     },
     rows: sampleRows
   };
@@ -384,7 +389,7 @@ function applyDefaultText(force = false) {
   }
 
   if (force || !state.manualSubtitle) {
-    els.subtitleInput.value = subtitle || "제80회 전국육상경기선수권대회";
+    els.subtitleInput.value = subtitle || "2026 밀양아리랑 전국육상경기대회";
     state.manualSubtitle = false;
   }
 }

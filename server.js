@@ -11,61 +11,72 @@ const PACE_ORIGIN = "https://pace-rise-node.com";
 
 const TOURNAMENTS = [
   {
-    id: "championship",
-    name: "제80회 전국육상경기선수권대회",
-    period: "2026-05-11 ~ 2026-05-15",
-    place: "정선",
+    id: "miryang-2026",
+    name: "2026 밀양아리랑 전국육상경기대회",
+    period: "2026-06-05 ~ 2026-06-09",
+    place: "밀양",
     reg_year: "2026",
-    to_cd: "E010020803",
+    to_cd: "E010010601",
     gubun: "E",
     domestic: "0",
     resultType: "TRM",
     tabs_id: "toKor"
-  },
-  {
-    id: "u20",
-    name: "제26회 한국 U20육상경기선수권대회",
-    period: "2026-05-11 ~ 2026-05-15",
-    place: "정선",
-    reg_year: "2026",
-    to_cd: "E01242024C",
-    gubun: "E",
-    domestic: "0",
-    resultType: "TRM",
-    tabs_id: "toKor"
-  },
-  {
-    id: "u18",
-    name: "제17회 한국 U18육상경기대회",
-    period: "2026-05-11 ~ 2026-05-15",
-    place: "정선",
-    reg_year: "2026",
-    to_cd: "E01510015D",
-    gubun: "E",
-    domestic: "0",
-    resultType: "TRM",
-    tabs_id: "toKor"
-  },
-  {
-    id: "youth",
-    name: "제28회 전국꿈나무선수선발육상경기대회",
-    period: "2026-05-11 ~ 2026-05-15",
-    place: "정선",
-    reg_year: "2026",
-    to_cd: "E016350011",
-    gubun: "E",
-    domestic: "0",
-    resultType: "TRM",
-    tabs_id: "toKor"
-  },
-  {
-    id: "ktfl-30",
-    source: "pace",
-    name: "제30회 KTFL 전국실업육상경기선수권대회",
-    period: "2026-05-26 ~ 2026-05-28",
-    place: "해남군",
-    comp_id: "35"
   }
+];
+
+const MIRYANG_EVENT_SPECS = [
+  ["100m", "남자고등학교부", "예선", "경기완료", "13", "11", "1", "", "TRM"],
+  ["100m", "여자고등학교부", "예선", "경기완료", "23", "11", "1", "", "TRM"],
+  ["100m", "여자고등학교부", "결승", "순위처리", "23", "11", "4", "", "TRM"],
+  ["100m", "여자일반부", "예선", "경기완료", "25", "11", "1", "", "TRM"],
+  ["100m", "여자일반부", "결승", "순위처리", "25", "11", "4", "", "TRM"],
+  ["400m", "남자중학교부", "예선", "경기완료", "12", "13", "1", "", "TRM"],
+  ["400m", "남자중학교부", "결승", "순위처리", "12", "13", "4", "", "TRM"],
+  ["400m", "남자대학교부", "결승", "순위처리", "14", "13", "4", "", "TRM"],
+  ["400m", "여자대학교부", "결승", "순위처리", "24", "13", "4", "", "TRM"],
+  ["800m", "남자일반부", "예선", "경기완료", "15", "14", "1", "", "TRM"],
+  ["800m", "남자일반부", "결승", "순위처리", "15", "14", "4", "", "TRM"],
+  ["800m", "여자고등학교부", "결승", "순위처리", "23", "14", "4", "", "TRM"],
+  ["800m", "여자일반부", "예선", "경기완료", "25", "14", "1", "", "TRM"],
+  ["800m", "여자일반부", "결승", "순위처리", "25", "14", "4", "", "TRM"],
+  ["1500m", "여자중학교부", "결승", "순위처리", "22", "16", "4", "", "TRM"],
+  ["3000mSC", "남자일반부", "결승", "순위처리", "15", "1B", "4", "", "TRM"],
+  ["3000mSC", "여자일반부", "결승", "순위처리", "25", "1B", "4", "", "TRM"],
+  ["100mH", "여자고등학교부", "결승", "순위처리", "23", "1C", "4", "", "TRM"],
+  ["높이뛰기", "남자대학교부", "결승", "순위처리", "14", "21", "4", "", "TRM"],
+  ["높이뛰기", "남자일반부", "결승", "순위처리", "15", "21", "4", "", "TRM"],
+  ["장대높이뛰기", "여자일반부", "결승", "순위처리", "25", "22", "4", "", "TRM"],
+  ["멀리뛰기", "남자중학교부", "결승", "순위처리", "12", "23", "4", "", "TRM"],
+  ["멀리뛰기", "남자일반부", "결승", "순위처리", "15", "23", "4", "", "TRM"],
+  ["멀리뛰기", "여자중학교부", "결승", "순위처리", "22", "23", "4", "", "TRM"],
+  ["해머던지기", "남자고등학교부", "결승", "순위처리", "13", "27", "4", "", "TRM"],
+  ["해머던지기", "남자대학교부", "결승", "순위처리", "14", "27", "4", "", "TRM"],
+  ["해머던지기", "남자일반부", "결승", "순위처리", "15", "27", "4", "", "TRM"],
+  ["해머던지기", "여자고등학교부", "결승", "순위처리", "23", "27", "4", "", "TRM"],
+  ["해머던지기", "여자일반부", "결승", "순위처리", "25", "27", "4", "", "TRM"],
+  ["10종경기", "남자고등학교부", "결승", "순위처리", "13", "41", "4", "", "TRM"],
+  ["10종경기", "남자대학교부", "결승", "순위처리", "14", "41", "4", "", "TRM"],
+  ["10종경기", "남자일반부", "결승", "순위처리", "15", "41", "4", "", "TRM"],
+  ["7종경기", "여자고등학교부", "결승", "순위처리", "23", "42", "4", "", "TRM"],
+  ["4x100mR", "남자중학교부", "결승", "순위처리", "12", "51", "4", "", "TRM"],
+  ["4x100mR", "남자일반부", "결승", "순위처리", "15", "51", "4", "", "TRM"],
+  ["4x100mR", "여자중학교부", "결승", "순위처리", "22", "51", "4", "", "TRM"],
+  ["4x400mR(Mixed)", "중학교부", "결승", "순위처리", "32", "54", "4", "", "TRM"],
+  ["100m(10종)", "남자고등학교부", "결승", "경기완료", "13", "A1", "4", "", "TRM"],
+  ["100m(10종)", "남자대학교부", "결승", "경기완료", "14", "A1", "4", "", "TRM"],
+  ["100m(10종)", "남자일반부", "결승", "경기완료", "15", "A1", "4", "", "TRM"],
+  ["멀리뛰기(10종)", "남자고등학교부", "결승", "경기완료", "13", "A2", "4", "", "TRM"],
+  ["멀리뛰기(10종)", "남자대학교부", "결승", "경기완료", "14", "A2", "4", "", "TRM"],
+  ["멀리뛰기(10종)", "남자일반부", "결승", "경기완료", "15", "A2", "4", "", "TRM"],
+  ["포환던지기(10종)", "남자고등학교부", "결승", "경기완료", "13", "A3", "4", "", "TRM"],
+  ["포환던지기(10종)", "남자대학교부", "결승", "경기완료", "14", "A3", "4", "", "TRM"],
+  ["포환던지기(10종)", "남자일반부", "결승", "경기완료", "15", "A3", "4", "", "TRM"],
+  ["높이뛰기(10종)", "남자고등학교부", "결승", "경기완료", "13", "A4", "4", "", "TRM"],
+  ["높이뛰기(10종)", "남자대학교부", "결승", "경기완료", "14", "A4", "4", "", "TRM"],
+  ["높이뛰기(10종)", "남자일반부", "결승", "경기완료", "15", "A4", "4", "", "TRM"],
+  ["100mH(7종)", "여자고등학교부", "결승", "경기완료", "23", "B1", "4", "", "TRM"],
+  ["높이뛰기(7종)", "여자고등학교부", "결승", "경기완료", "23", "B2", "4", "", "TRM"],
+  ["포환던지기(7종)", "여자고등학교부", "결승", "경기완료", "23", "B3", "4", "", "TRM"]
 ];
 
 const DEFAULT_TOURNAMENT = TOURNAMENTS[0];
@@ -182,11 +193,9 @@ function findTournament(idOrCode) {
 
 function parseEventList(html, tournament) {
   const section = extractKorSection(html);
-  const tbodyMatch = section.match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/i);
-  if (!tbodyMatch) return [];
-
   const events = [];
-  for (const rowMatch of tbodyMatch[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+  const seen = new Set();
+  for (const rowMatch of section.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const rowHtml = rowMatch[1];
     const cells = extractCells(rowHtml, "td");
     const onclick =
@@ -206,6 +215,8 @@ function parseEventList(html, tournament) {
       params.gday || "all",
       params.resultType
     ].join("-");
+    if (seen.has(id)) continue;
+    seen.add(id);
 
     events.push({
       id,
@@ -220,6 +231,32 @@ function parseEventList(html, tournament) {
   }
 
   return events;
+}
+
+function fallbackEventsForTournament(tournament) {
+  if (tournament.id !== "miryang-2026") return [];
+
+  return MIRYANG_EVENT_SPECS.map(([eventName, division, round, status, kind_cd, detail_class_cd, roundCode, gday, resultType]) => {
+    const id = [kind_cd, detail_class_cd, roundCode, gday || "all", resultType].join("-");
+    return {
+      id,
+      tournament_id: tournament.id,
+      eventName,
+      division,
+      round,
+      status,
+      label: `${eventName} ${division} ${round}`,
+      params: {
+        to_cd: tournament.to_cd,
+        reg_year: tournament.reg_year,
+        kind_cd,
+        detail_class_cd,
+        round: roundCode,
+        gday,
+        resultType
+      }
+    };
+  });
 }
 
 function parseResultPage(html, tournament) {
@@ -830,11 +867,35 @@ async function fetchText(url, options = {}) {
   return response.text();
 }
 
+function kaafResultInfoUrl(tournament) {
+  return `${RESULT_ORIGIN}/tourInfo/resultInfo.do?reg_year=${tournament.reg_year}&to_cd=${tournament.to_cd}&gubun=${tournament.gubun}&domestic=${tournament.domestic}&resultType=${tournament.resultType}&kind_cd=&tabs_id=${tournament.tabs_id}`;
+}
+
+function isKaafServerError(html) {
+  return /NullPointerException|전산운영시스템\s*500|class\s+java\.lang/i.test(html || "");
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchKaafText(url, options = {}, attempts = 3) {
+  let lastHtml = "";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    lastHtml = await fetchText(url, options);
+    if (!isKaafServerError(lastHtml)) return lastHtml;
+    if (attempt < attempts - 1) {
+      await wait(350 * (attempt + 1));
+    }
+  }
+  return lastHtml;
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
     ...options,
     headers: {
-      "User-Agent": "Mozilla/5.0 KAAF KTFL result card maker",
+      "User-Agent": "Mozilla/5.0 KAAF result card maker",
       "Accept": "application/json,text/plain,*/*",
       ...(options.headers || {})
     }
@@ -856,9 +917,11 @@ async function getEvents(tournament) {
     return cached.data;
   }
 
-  const url = `${RESULT_ORIGIN}/tourInfo/resultInfo.do?reg_year=${tournament.reg_year}&to_cd=${tournament.to_cd}&gubun=${tournament.gubun}&domestic=${tournament.domestic}&resultType=${tournament.resultType}&kind_cd=&tabs_id=${tournament.tabs_id}`;
-  const html = await fetchText(url);
-  const events = parseEventList(html, tournament);
+  const html = await fetchKaafText(kaafResultInfoUrl(tournament));
+  let events = parseEventList(html, tournament);
+  if (!events.length) {
+    events = fallbackEventsForTournament(tournament);
+  }
   eventCache.set(tournament.id, { at: now, data: events });
   return events;
 }
@@ -896,22 +959,26 @@ async function getResult(searchParams) {
     gubun: tournament.gubun
   });
 
-  const html = await fetchText(`${RESULT_ORIGIN}/tourInfo/info_command.do`, {
+  const html = await fetchKaafText(`${RESULT_ORIGIN}/tourInfo/info_command.do`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
       "Origin": RESULT_ORIGIN,
-      "Referer": `${RESULT_ORIGIN}/tourInfo/resultInfo.do`
+      "Referer": kaafResultInfoUrl(tournament)
     },
     body
   });
-  return parseResultPage(html, tournament);
+  const result = parseResultPage(html, tournament);
+  if (isKaafServerError(html)) {
+    throw new Error("KAAF 서버가 일시적으로 500 오류를 반환했습니다. 잠시 뒤 새로고침해주세요.");
+  }
+  return result;
 }
 
 async function getPaceResult(searchParams, tournament) {
   const eventId = searchParams.get("event_id");
   if (!eventId) {
-    throw new Error("KTFL event_id is missing");
+    throw new Error("PACE event_id is missing");
   }
 
   const data = await fetchJson(`${PACE_ORIGIN}/api/events/${eventId}/live-results`);
