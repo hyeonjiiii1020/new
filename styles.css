@@ -316,8 +316,8 @@ h1 {
 .result-card {
   position: relative;
   width: 540px;
-  height: 540px;
-  padding: 24px 30px 38px;
+  height: 675px;
+  padding: 42px 30px 54px;
   background: #fff;
   border: 1px solid #f2f2f2;
   box-shadow: 0 24px 70px rgba(12, 25, 42, 0.14);
@@ -330,7 +330,7 @@ h1 {
 .card-head h2 {
   margin: 0;
   color: var(--navy);
-  font-size: 30px;
+  font-size: 34px;
   line-height: 1.14;
   font-weight: 950;
   letter-spacing: 0;
@@ -338,9 +338,9 @@ h1 {
 }
 
 .card-head p {
-  margin: 9px 0 0;
+  margin: 12px 0 0;
   color: #557c8c;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
   word-break: keep-all;
@@ -348,19 +348,19 @@ h1 {
 
 .result-table {
   width: 100%;
-  margin-top: 19px;
+  margin-top: 34px;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 17px;
+  font-size: 18px;
 }
 
 .result-table th {
-  height: 36px;
+  height: 42px;
   padding: 0 10px;
   color: #fff;
   background: var(--navy);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 950;
   text-align: center;
 }
@@ -383,7 +383,7 @@ h1 {
 }
 
 .result-table td {
-  height: 40px;
+  height: 50px;
   padding: 0 10px;
   border-bottom: 1px solid #e7e7e7;
   color: #101010;
@@ -400,7 +400,7 @@ h1 {
 }
 
 .result-table td:nth-child(4) {
-  font-size: 15px;
+  font-size: 16px;
 }
 
 .result-table td:nth-child(3) {
@@ -422,7 +422,7 @@ h1 {
 .card-credit {
   position: absolute;
   right: 30px;
-  bottom: 14px;
+  bottom: 20px;
   margin: 0;
   color: #8a929d;
   font-size: 12px;
@@ -432,7 +432,7 @@ h1 {
 
 .schedule-card {
   width: 540px;
-  height: 540px;
+  height: 675px;
   background: #fff;
   border: 1px solid #f2f2f2;
   box-shadow: 0 24px 70px rgba(12, 25, 42, 0.14);
@@ -484,21 +484,21 @@ h1 {
   .result-card {
     width: 540px;
     max-width: none;
-    height: 540px;
-    padding: 24px 30px 38px;
+    height: 675px;
+    padding: 42px 30px 54px;
   }
 
   .card-head h2 {
-    font-size: 30px;
+    font-size: 34px;
   }
 
   .card-head p {
-    font-size: 14px;
+    font-size: 15px;
   }
 
   .result-table {
-    margin-top: 16px;
-    font-size: 17px;
+    margin-top: 34px;
+    font-size: 18px;
   }
 
   .result-table th,
@@ -508,6 +508,6 @@ h1 {
 
   .schedule-card {
     width: 540px;
-    height: 540px;
+    height: 675px;
   }
 }

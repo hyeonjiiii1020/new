@@ -1,7 +1,7 @@
 const ROWS_PER_PAGE = 8;
-const SCHEDULE_ROWS_PER_PAGE = 11;
+const SCHEDULE_ROWS_PER_PAGE = 14;
 const CARD_WIDTH = 1080;
-const CARD_HEIGHT = 1080;
+const CARD_HEIGHT = 1350;
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5173" : "";
 
 const state = {
@@ -74,9 +74,9 @@ const sampleRows = [
 
 const scheduleBody = {
   x: 54,
-  y: 44,
+  y: 70,
   width: 972,
-  height: 968
+  height: 1210
 };
 
 function setStatus(message) {
@@ -865,13 +865,13 @@ function renderScheduleEmptyCanvas() {
   ctx.strokeStyle = "#f1f1f1";
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
-  drawCenteredMultiline(ctx, "시간표 카드", CARD_WIDTH / 2, 484, 800, 68, {
-    size: 72,
+  drawCenteredMultiline(ctx, "시간표 카드", CARD_WIDTH / 2, 610, 800, 72, {
+    size: 76,
     weight: 950,
     color: "#062764",
     minSize: 46
   });
-  drawFitText(ctx, "사진에서 텍스트를 읽거나 시간표 내용을 붙여넣어주세요.", CARD_WIDTH / 2, 590, 840, {
+  drawFitText(ctx, "사진에서 텍스트를 읽거나 시간표 내용을 붙여넣어주세요.", CARD_WIDTH / 2, 730, 840, {
     align: "center",
     size: 28,
     weight: 700,
@@ -898,7 +898,7 @@ function renderScheduleCoverCanvas() {
 
   ctx.strokeStyle = "#edf1f5";
   ctx.lineWidth = 2;
-  for (let y = 140; y <= 900; y += 86) {
+  for (let y = 180; y <= 1110; y += 92) {
     ctx.beginPath();
     ctx.moveTo(112, y);
     ctx.lineTo(CARD_WIDTH - 112, y);
@@ -906,30 +906,30 @@ function renderScheduleCoverCanvas() {
   }
   for (let x = 160; x <= CARD_WIDTH - 160; x += 190) {
     ctx.beginPath();
-    ctx.moveTo(x, 168);
-    ctx.lineTo(x, 862);
+    ctx.moveTo(x, 208);
+    ctx.lineTo(x, 1070);
     ctx.stroke();
   }
 
   ctx.fillStyle = "rgba(255,255,255,0.88)";
-  ctx.fillRect(0, 210, CARD_WIDTH, 560);
+  ctx.fillRect(0, 320, CARD_WIDTH, 650);
 
-  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 414, 850, 62, {
-    size: 56,
+  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 548, 850, 66, {
+    size: 58,
     weight: 950,
     color: "#062764",
     minSize: 34
   });
 
-  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 578, 820, {
+  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 720, 820, {
     align: "center",
-    size: 88,
+    size: 92,
     weight: 950,
     color: "#101419",
     minSize: 58
   });
 
-  drawFitText(ctx, "TIMETABLE", CARD_WIDTH / 2, 668, 620, {
+  drawFitText(ctx, "TIMETABLE", CARD_WIDTH / 2, 820, 620, {
     align: "center",
     size: 24,
     weight: 800,
@@ -952,9 +952,9 @@ function renderScheduleTableCanvas(page) {
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
   const sectionLabel = `${page.section}${page.total > 1 ? ` ${page.part}/${page.total}` : ""}`;
   const tableX = 60;
-  const tableY = 258;
+  const tableY = 300;
   const tableW = 960;
-  const headerH = 58;
+  const headerH = 60;
   const rowH = 62;
   const colW = [148, 272, 328, 212];
   const headers = ["시간", "종목", "부별", "라운드"];
@@ -965,14 +965,14 @@ function renderScheduleTableCanvas(page) {
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
 
-  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 76, 900, 34, {
+  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 92, 900, 34, {
     size: 30,
     weight: 800,
     color: "#557c8c",
     minSize: 22
   });
 
-  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 142, 760, {
+  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 170, 760, {
     align: "center",
     size: 56,
     weight: 950,
@@ -980,7 +980,7 @@ function renderScheduleTableCanvas(page) {
     minSize: 40
   });
 
-  drawFitText(ctx, sectionLabel, CARD_WIDTH / 2, 205, 760, {
+  drawFitText(ctx, sectionLabel, CARD_WIDTH / 2, 242, 760, {
     align: "center",
     size: 28,
     weight: 850,
@@ -1184,25 +1184,25 @@ function renderCanvas(page) {
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
 
-  drawCenteredMultiline(ctx, pageTitle(page), CARD_WIDTH / 2, 96, 900, 62, {
-    size: 64,
+  drawCenteredMultiline(ctx, pageTitle(page), CARD_WIDTH / 2, 124, 900, 66, {
+    size: 68,
     weight: 950,
     color: "#062764",
     minSize: 44
   });
 
-  drawCenteredMultiline(ctx, normalize(els.subtitleInput.value), CARD_WIDTH / 2, 178, 820, 36, {
-    size: 30,
+  drawCenteredMultiline(ctx, normalize(els.subtitleInput.value), CARD_WIDTH / 2, 222, 820, 38, {
+    size: 32,
     weight: 700,
     color: "#557c8c",
     minSize: 23
   });
 
   const tableX = 60;
-  const tableY = 246;
+  const tableY = 306;
   const tableW = 960;
-  const headerH = 62;
-  const rowH = 80;
+  const headerH = 70;
+  const rowH = 94;
   const colW = [118, 178, 432, 232];
   const headers = ["순위", "성명", "소속", isCombinedOverallEvent() ? "총점" : "기록"];
 
@@ -1221,7 +1221,7 @@ function renderCanvas(page) {
     }
     drawFitText(ctx, header, x + colW[index] / 2, tableY + headerH / 2, colW[index] - 24, {
       align: "center",
-      size: 32,
+      size: 34,
       weight: 950,
       color: "#ffffff",
       minSize: 26
@@ -1248,7 +1248,7 @@ function renderCanvas(page) {
       const isRecord = index === 3;
       drawFitText(ctx, value, isLeft ? cellX + 24 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 32, {
         align: isLeft ? "left" : "center",
-        size: isRecord ? 30 : 34,
+        size: isRecord ? 32 : 36,
         weight: index === 2 ? 760 : 900,
         color: "#101010",
         minSize: index === 2 ? 24 : 25
