@@ -318,12 +318,34 @@ h1 {
   width: 540px;
   height: 675px;
   padding: 42px 30px 54px;
-  background: #fff;
-  border: 1px solid #f2f2f2;
+  background: #fbfcfd;
+  border: 1px solid #eef2f6;
   box-shadow: 0 24px 70px rgba(12, 25, 42, 0.14);
 }
 
+.result-card::before {
+  content: "";
+  position: absolute;
+  left: 30px;
+  top: 28px;
+  width: 130px;
+  height: 5px;
+  background: linear-gradient(90deg, var(--navy) 0 72%, #1f9d9a 72% 100%);
+}
+
+.result-card::after {
+  content: "RESULTS";
+  position: absolute;
+  top: 22px;
+  right: 30px;
+  color: #557c8c;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
 .card-head {
+  padding-top: 16px;
   text-align: center;
 }
 
@@ -349,8 +371,14 @@ h1 {
 .result-table {
   width: 100%;
   margin-top: 34px;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
+  overflow: hidden;
+  border: 1px solid #dfe4ea;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(12, 25, 42, 0.08);
   font-size: 18px;
 }
 
@@ -394,6 +422,10 @@ h1 {
   vertical-align: middle;
 }
 
+.result-table tbody tr:nth-child(even):not(.medal-1):not(.medal-2):not(.medal-3) td {
+  background: #f8fafc;
+}
+
 .result-table td:nth-child(1),
 .result-table td:nth-child(4) {
   text-align: center;
@@ -411,12 +443,24 @@ h1 {
   background: var(--gold);
 }
 
+.result-table tr.medal-1 td:first-child {
+  border-left: 4px solid #f1c84c;
+}
+
 .result-table tr.medal-2 td {
   background: var(--silver);
 }
 
+.result-table tr.medal-2 td:first-child {
+  border-left: 4px solid #aeb9c6;
+}
+
 .result-table tr.medal-3 td {
   background: var(--bronze);
+}
+
+.result-table tr.medal-3 td:first-child {
+  border-left: 4px solid #c98d58;
 }
 
 .card-credit {
@@ -433,8 +477,8 @@ h1 {
 .schedule-card {
   width: 540px;
   height: 675px;
-  background: #fff;
-  border: 1px solid #f2f2f2;
+  background: #fbfcfd;
+  border: 1px solid #eef2f6;
   box-shadow: 0 24px 70px rgba(12, 25, 42, 0.14);
 }
 

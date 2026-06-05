@@ -565,6 +565,46 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
   });
 }
 
+function drawCardChrome(ctx, label) {
+  ctx.fillStyle = "#fbfcfd";
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(32, 32, CARD_WIDTH - 64, CARD_HEIGHT - 64);
+
+  ctx.fillStyle = "#062764";
+  ctx.fillRect(60, 58, 172, 10);
+  ctx.fillStyle = "#1f9d9a";
+  ctx.fillRect(244, 58, 78, 10);
+
+  drawFitText(ctx, label, CARD_WIDTH - 60, 64, 360, {
+    align: "right",
+    size: 22,
+    weight: 850,
+    color: "#557c8c",
+    minSize: 18
+  });
+
+  ctx.strokeStyle = "#eef2f6";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+}
+
+function drawTableShell(ctx, x, y, width, height) {
+  ctx.save();
+  ctx.shadowColor = "rgba(12, 25, 42, 0.11)";
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 12;
+  ctx.fillStyle = "#ffffff";
+  roundedRect(ctx, x, y, width, height, 8);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = "#dfe4ea";
+  ctx.lineWidth = 1.5;
+  roundedRect(ctx, x, y, width, height, 8);
+  ctx.stroke();
+}
+
 function loadImageFromFile(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -860,11 +900,7 @@ function renderScheduleEmptyCanvas() {
   canvas.width = CARD_WIDTH;
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  ctx.strokeStyle = "#f1f1f1";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawCardChrome(ctx, "TIMETABLE");
   drawCenteredMultiline(ctx, "시간표 카드", CARD_WIDTH / 2, 610, 800, 72, {
     size: 76,
     weight: 950,
@@ -889,11 +925,8 @@ function renderScheduleCoverCanvas() {
   const ctx = canvas.getContext("2d");
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-
+  drawCardChrome(ctx, "TIMETABLE");
   ctx.fillStyle = "#062764";
-  ctx.fillRect(76, 86, 170, 10);
   ctx.fillRect(CARD_WIDTH - 246, CARD_HEIGHT - 98, 170, 10);
 
   ctx.strokeStyle = "#edf1f5";
@@ -958,12 +991,9 @@ function renderScheduleTableCanvas(page) {
   const rowH = 62;
   const colW = [148, 272, 328, 212];
   const headers = ["시간", "종목", "부별", "라운드"];
+  const tableH = headerH + page.rows.length * rowH;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  ctx.strokeStyle = "#f1f1f1";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawCardChrome(ctx, "TIMETABLE");
 
   drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 92, 900, 34, {
     size: 30,
@@ -988,6 +1018,7 @@ function renderScheduleTableCanvas(page) {
     minSize: 22
   });
 
+  drawTableShell(ctx, tableX, tableY, tableW, tableH);
   ctx.fillStyle = "#062764";
   ctx.fillRect(tableX, tableY, tableW, headerH);
 
@@ -1049,11 +1080,7 @@ function renderScheduleImageCanvas(page) {
   const ctx = canvas.getContext("2d");
   const source = state.schedule.sourceCanvas;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  ctx.strokeStyle = "#f1f1f1";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawCardChrome(ctx, "TIMETABLE");
 
   if (!source || !page) {
     drawScheduleCredit(ctx);
@@ -1178,11 +1205,7 @@ function renderCanvas(page) {
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  ctx.strokeStyle = "#f1f1f1";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  drawCardChrome(ctx, "RESULTS");
 
   drawCenteredMultiline(ctx, pageTitle(page), CARD_WIDTH / 2, 124, 900, 66, {
     size: 68,
@@ -1205,7 +1228,9 @@ function renderCanvas(page) {
   const rowH = 94;
   const colW = [118, 178, 432, 232];
   const headers = ["순위", "성명", "소속", isCombinedOverallEvent() ? "총점" : "기록"];
+  const tableH = headerH + page.rows.length * rowH;
 
+  drawTableShell(ctx, tableX, tableY, tableW, tableH);
   ctx.fillStyle = "#062764";
   ctx.fillRect(tableX, tableY, tableW, headerH);
 
@@ -1232,8 +1257,12 @@ function renderCanvas(page) {
   page.rows.forEach((row, rowIndex) => {
     const y = tableY + headerH + rowIndex * rowH;
     const numericRank = Number(row.rank);
-    ctx.fillStyle = numericRank === 1 ? "#fff6c9" : numericRank === 2 ? "#f0f1f3" : numericRank === 3 ? "#f3e3d3" : "#ffffff";
+    ctx.fillStyle = numericRank === 1 ? "#fff4bd" : numericRank === 2 ? "#eef1f5" : numericRank === 3 ? "#f2decc" : rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc";
     ctx.fillRect(tableX, y, tableW, rowH);
+    if (numericRank >= 1 && numericRank <= 3) {
+      ctx.fillStyle = numericRank === 1 ? "#f1c84c" : numericRank === 2 ? "#aeb9c6" : "#c98d58";
+      ctx.fillRect(tableX, y, 8, rowH);
+    }
     ctx.strokeStyle = "#e7e7e7";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
