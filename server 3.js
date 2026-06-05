@@ -81,6 +81,7 @@ const MIRYANG_EVENT_SPECS = [
 
 const DEFAULT_TOURNAMENT = TOURNAMENTS[0];
 const eventCache = new Map();
+const resultCache = new Map();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -879,13 +880,18 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchKaafText(url, options = {}, attempts = 3) {
+function extractJsessionId(html) {
+  const match = String(html || "").match(/info_command\.do;jsessionid=([A-Z0-9]+)/i);
+  return match ? match[1] : "";
+}
+
+async function fetchKaafText(url, options = {}, attempts = 6) {
   let lastHtml = "";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     lastHtml = await fetchText(url, options);
     if (!isKaafServerError(lastHtml)) return lastHtml;
     if (attempt < attempts - 1) {
-      await wait(350 * (attempt + 1));
+      await wait(450 * (attempt + 1));
     }
   }
   return lastHtml;
@@ -958,19 +964,55 @@ async function getResult(searchParams) {
     tabs_id: tournament.tabs_id,
     gubun: tournament.gubun
   });
+  const cacheKey = [
+    tournament.id,
+    body.get("reg_year"),
+    body.get("to_cd"),
+    body.get("kind_cd"),
+    body.get("detail_class_cd"),
+    body.get("round"),
+    body.get("gday"),
+    body.get("resultType")
+  ].join("|");
+  const cached = resultCache.get(cacheKey);
+  const referer = kaafResultInfoUrl(tournament);
+  let commandUrl = `${RESULT_ORIGIN}/tourInfo/info_command.do`;
 
-  const html = await fetchKaafText(`${RESULT_ORIGIN}/tourInfo/info_command.do`, {
+  try {
+    const warmHtml = await fetchKaafText(referer, {}, 2);
+    const jsessionId = extractJsessionId(warmHtml);
+    if (jsessionId && !isKaafServerError(warmHtml)) {
+      commandUrl = `${RESULT_ORIGIN}/tourInfo/info_command.do;jsessionid=${jsessionId}`;
+    }
+  } catch {
+    // The result POST below can still work even when the warm-up request fails.
+  }
+
+  const html = await fetchKaafText(commandUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
       "Origin": RESULT_ORIGIN,
-      "Referer": kaafResultInfoUrl(tournament)
+      "Referer": referer
     },
     body
-  });
+  }, 6);
   const result = parseResultPage(html, tournament);
   if (isKaafServerError(html)) {
+    if (cached?.data && Date.now() - cached.at < 10 * 60 * 1000) {
+      return {
+        ...cached.data,
+        meta: {
+          ...cached.data.meta,
+          cached: true,
+          fetchedAt: new Date().toISOString()
+        }
+      };
+    }
     throw new Error("KAAF 서버가 일시적으로 500 오류를 반환했습니다. 잠시 뒤 새로고침해주세요.");
+  }
+  if (result.rows.length) {
+    resultCache.set(cacheKey, { at: Date.now(), data: result });
   }
   return result;
 }

@@ -22,6 +22,16 @@
           <button id="scheduleModeBtn" class="mode-tab" type="button">시간표 카드</button>
         </div>
 
+        <label class="field wide design-field">
+          <span>디자인</span>
+          <select id="designSelect">
+            <option value="press">프레스 블랙</option>
+            <option value="slate">슬레이트</option>
+            <option value="navy">네이비 클래식</option>
+            <option value="line">라인 미니멀</option>
+          </select>
+        </label>
+
         <div id="resultControls" class="mode-panel">
           <div class="control-grid">
             <label class="field wide">
@@ -78,8 +88,16 @@
             </label>
 
             <label class="field wide">
+              <span>시간표 방식</span>
+              <select id="scheduleBuildMode">
+                <option value="photo">사진 그대로 카드화</option>
+                <option value="text">텍스트 표로 재구성</option>
+              </select>
+            </label>
+
+            <label class="field wide">
               <span>시간표 사진</span>
-              <input id="scheduleImageInput" type="file" accept="image/*">
+              <input id="scheduleImageInput" type="file" accept="image/*,.jpg,.jpeg,.png,.webp" multiple>
             </label>
 
             <button id="readScheduleBtn" class="secondary wide" type="button">사진에서 텍스트 읽기</button>
@@ -95,7 +113,7 @@
             <span>표지 포함</span>
           </label>
 
-          <button id="buildScheduleBtn" class="primary wide-button" type="button">재구성 시간표 만들기</button>
+          <button id="buildScheduleBtn" class="primary wide-button" type="button">시간표 카드 만들기</button>
         </div>
 
         <div class="status-row">

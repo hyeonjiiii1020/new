@@ -16,8 +16,10 @@ const state = {
   currentPage: 0,
   manualTitle: false,
   manualSubtitle: false,
+  design: "press",
   schedule: {
     sourceCanvas: null,
+    images: [],
     rows: [],
     pages: []
   }
@@ -46,12 +48,14 @@ const els = {
   nextPage: $("#nextPage"),
   downloadCurrent: $("#downloadCurrent"),
   downloadAll: $("#downloadAll"),
+  designSelect: $("#designSelect"),
   cardTitle: $("#cardTitle"),
   cardSubtitle: $("#cardSubtitle"),
   recordHeader: $("#recordHeader"),
   cardRows: $("#cardRows"),
   cardPreview: $("#cardPreview"),
   scheduleTitleInput: $("#scheduleTitleInput"),
+  scheduleBuildMode: $("#scheduleBuildMode"),
   scheduleImageInput: $("#scheduleImageInput"),
   readScheduleBtn: $("#readScheduleBtn"),
   scheduleTextInput: $("#scheduleTextInput"),
@@ -73,10 +77,85 @@ const sampleRows = [
 ];
 
 const scheduleBody = {
-  x: 54,
-  y: 70,
-  width: 972,
-  height: 1210
+  x: 64,
+  y: 84,
+  width: 952,
+  height: 1196
+};
+
+const CARD_THEMES = {
+  press: {
+    label: "프레스 블랙",
+    bg: "#f8f7f1",
+    paper: "#ffffff",
+    ink: "#111111",
+    muted: "#555555",
+    line: "#151515",
+    softLine: "#d8d4c8",
+    header: "#111111",
+    headerText: "#ffffff",
+    rowAlt: "#f5f3ea",
+    shadow: "rgba(20, 20, 20, 0.10)",
+    medal1: "#f4f1df",
+    medal2: "#eeeeec",
+    medal3: "#f0e2d4",
+    accent: "#111111",
+    accent2: "#111111"
+  },
+  slate: {
+    label: "슬레이트",
+    bg: "#eef1f4",
+    paper: "#ffffff",
+    ink: "#242a31",
+    muted: "#626b75",
+    line: "#c9d0d7",
+    softLine: "#e4e8ec",
+    header: "#2c333a",
+    headerText: "#ffffff",
+    rowAlt: "#f6f8fa",
+    shadow: "rgba(25, 35, 45, 0.12)",
+    medal1: "#f5edcf",
+    medal2: "#edf0f2",
+    medal3: "#f1dfd1",
+    accent: "#2c333a",
+    accent2: "#8b949e"
+  },
+  navy: {
+    label: "네이비 클래식",
+    bg: "#fbfcfd",
+    paper: "#ffffff",
+    ink: "#101419",
+    muted: "#557c8c",
+    line: "#dfe4ea",
+    softLine: "#e7ebef",
+    header: "#062764",
+    headerText: "#ffffff",
+    rowAlt: "#f8fafc",
+    shadow: "rgba(12, 25, 42, 0.11)",
+    medal1: "#fff4bd",
+    medal2: "#eef1f5",
+    medal3: "#f2decc",
+    accent: "#062764",
+    accent2: "#1f9d9a"
+  },
+  line: {
+    label: "라인 미니멀",
+    bg: "#ffffff",
+    paper: "#ffffff",
+    ink: "#111111",
+    muted: "#666666",
+    line: "#111111",
+    softLine: "#dedede",
+    header: "#111111",
+    headerText: "#ffffff",
+    rowAlt: "#fafafa",
+    shadow: "rgba(0, 0, 0, 0.05)",
+    medal1: "#f7f4e6",
+    medal2: "#f1f1f1",
+    medal3: "#f2e5da",
+    accent: "#111111",
+    accent2: "#111111"
+  }
 };
 
 function setStatus(message) {
@@ -87,6 +166,17 @@ function setResultStatus(message) {
   if (state.mode === "result") {
     setStatus(message);
   }
+}
+
+function currentTheme() {
+  const key = els.designSelect?.value || state.design || "press";
+  return CARD_THEMES[key] || CARD_THEMES.press;
+}
+
+function applyDesignToPreview() {
+  state.design = els.designSelect?.value || state.design || "press";
+  els.cardPreview.dataset.design = state.design;
+  els.schedulePreview.dataset.design = state.design;
 }
 
 function normalize(value) {
@@ -352,6 +442,21 @@ async function loadSelectedResult() {
     setResultStatus(`${payload.tournament?.name || state.selectedTournament?.name || ""} · ${selected.label} 결과를 불러왔습니다.`);
   } catch (error) {
     console.error(error);
+    state.result = {
+      tournament: state.selectedTournament,
+      meta: {
+        tournament: state.selectedTournament?.name || "",
+        place: state.selectedTournament?.place || "",
+        eventName: selected.eventName || "",
+        division: selected.division || "",
+        round: selected.round || "",
+        date: state.selectedTournament?.period || ""
+      },
+      rows: []
+    };
+    applyDefaultText(true);
+    buildPages();
+    renderCard();
     setResultStatus(`결과를 불러오지 못했습니다. ${error.message}`);
   } finally {
     setBusy(false);
@@ -454,6 +559,7 @@ function currentPage() {
 }
 
 function renderCard() {
+  applyDesignToPreview();
   const page = currentPage();
   els.cardTitle.textContent = pageTitle(page);
   els.cardSubtitle.textContent = normalize(els.subtitleInput.value);
@@ -571,40 +677,42 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
 }
 
 function drawCardChrome(ctx, label) {
-  ctx.fillStyle = "#fbfcfd";
+  const theme = currentTheme();
+  ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = theme.paper;
   ctx.fillRect(32, 32, CARD_WIDTH - 64, CARD_HEIGHT - 64);
 
-  ctx.fillStyle = "#062764";
+  ctx.fillStyle = theme.accent;
   ctx.fillRect(60, 58, 172, 10);
-  ctx.fillStyle = "#1f9d9a";
+  ctx.fillStyle = theme.accent2;
   ctx.fillRect(244, 58, 78, 10);
 
   drawFitText(ctx, label, CARD_WIDTH - 60, 64, 360, {
     align: "right",
     size: 22,
     weight: 850,
-    color: "#557c8c",
+    color: theme.muted,
     minSize: 18
   });
 
-  ctx.strokeStyle = "#eef2f6";
+  ctx.strokeStyle = theme.line;
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
 }
 
 function drawTableShell(ctx, x, y, width, height) {
+  const theme = currentTheme();
   ctx.save();
-  ctx.shadowColor = "rgba(12, 25, 42, 0.11)";
+  ctx.shadowColor = theme.shadow;
   ctx.shadowBlur = 24;
   ctx.shadowOffsetY = 12;
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = theme.paper;
   roundedRect(ctx, x, y, width, height, 8);
   ctx.fill();
   ctx.restore();
 
-  ctx.strokeStyle = "#dfe4ea";
+  ctx.strokeStyle = theme.line;
   ctx.lineWidth = 1.5;
   roundedRect(ctx, x, y, width, height, 8);
   ctx.stroke();
@@ -654,7 +762,8 @@ function trimScheduleCanvas(canvas) {
     for (let x = 0; x < width; x += step) {
       const index = (y * width + x) * 4;
       const lightness = (data[index] + data[index + 1] + data[index + 2]) / 3;
-      if (lightness > 185) {
+      const contrast = Math.max(data[index], data[index + 1], data[index + 2]) - Math.min(data[index], data[index + 1], data[index + 2]);
+      if (lightness < 238 || contrast > 28) {
         minX = Math.min(minX, x);
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x);
@@ -667,7 +776,7 @@ function trimScheduleCanvas(canvas) {
     return canvas;
   }
 
-  const pad = Math.round(Math.max(width, height) * 0.01);
+  const pad = Math.round(Math.max(width, height) * 0.028);
   const sx = Math.max(0, minX - pad);
   const sy = Math.max(0, minY - pad);
   const sw = Math.min(width - sx, maxX - minX + pad * 2);
@@ -677,6 +786,24 @@ function trimScheduleCanvas(canvas) {
   output.height = sh;
   output.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
   return output;
+}
+
+function fitContain(sourceWidth, sourceHeight, box) {
+  const scale = Math.min(box.width / sourceWidth, box.height / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  return {
+    x: box.x + (box.width - width) / 2,
+    y: box.y + (box.height - height) / 2,
+    width,
+    height
+  };
+}
+
+function selectedScheduleImageFiles() {
+  return [...(els.scheduleImageInput.files || [])].filter((file) =>
+    file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(file.name)
+  );
 }
 
 function scheduleRowScores(canvas) {
@@ -890,12 +1017,31 @@ function buildSchedulePagesFromCanvas(sourceCanvas) {
   return pages;
 }
 
+function buildSchedulePagesFromImages(images) {
+  const pages = [];
+  if (els.scheduleCoverInput.checked) {
+    pages.push({ type: "cover" });
+  }
+
+  images.forEach((image, index) => {
+    pages.push({
+      type: "schedulePhoto",
+      canvas: image.canvas,
+      fileName: image.fileName,
+      imageIndex: index + 1
+    });
+  });
+
+  return pages;
+}
+
 function drawScheduleCredit(ctx) {
+  const theme = currentTheme();
   drawFitText(ctx, "한국육상매거진", CARD_WIDTH - 54, CARD_HEIGHT - 31, 360, {
     align: "right",
     size: 22,
     weight: 700,
-    color: "#8a929d",
+    color: theme.muted,
     minSize: 18
   });
 }
@@ -929,12 +1075,13 @@ function renderScheduleCoverCanvas() {
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
+  const theme = currentTheme();
 
   drawCardChrome(ctx, "TIMETABLE");
-  ctx.fillStyle = "#062764";
+  ctx.fillStyle = theme.accent;
   ctx.fillRect(CARD_WIDTH - 246, CARD_HEIGHT - 98, 170, 10);
 
-  ctx.strokeStyle = "#edf1f5";
+  ctx.strokeStyle = theme.softLine;
   ctx.lineWidth = 2;
   for (let y = 180; y <= 1110; y += 92) {
     ctx.beginPath();
@@ -955,7 +1102,7 @@ function renderScheduleCoverCanvas() {
   drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 548, 850, 66, {
     size: 58,
     weight: 950,
-    color: "#062764",
+    color: theme.accent,
     minSize: 34
   });
 
@@ -963,7 +1110,7 @@ function renderScheduleCoverCanvas() {
     align: "center",
     size: 92,
     weight: 950,
-    color: "#101419",
+    color: theme.ink,
     minSize: 58
   });
 
@@ -971,11 +1118,11 @@ function renderScheduleCoverCanvas() {
     align: "center",
     size: 24,
     weight: 800,
-    color: "#557c8c",
+    color: theme.muted,
     minSize: 18
   });
 
-  ctx.strokeStyle = "#f1f1f1";
+  ctx.strokeStyle = theme.softLine;
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
   drawScheduleCredit(ctx);
@@ -988,6 +1135,7 @@ function renderScheduleTableCanvas(page) {
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
+  const theme = currentTheme();
   const sectionLabel = `${page.section}${page.total > 1 ? ` ${page.part}/${page.total}` : ""}`;
   const tableX = 60;
   const tableY = 300;
@@ -1003,7 +1151,7 @@ function renderScheduleTableCanvas(page) {
   drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 92, 900, 34, {
     size: 30,
     weight: 800,
-    color: "#557c8c",
+    color: theme.muted,
     minSize: 22
   });
 
@@ -1011,7 +1159,7 @@ function renderScheduleTableCanvas(page) {
     align: "center",
     size: 56,
     weight: 950,
-    color: "#062764",
+    color: theme.accent,
     minSize: 40
   });
 
@@ -1019,12 +1167,12 @@ function renderScheduleTableCanvas(page) {
     align: "center",
     size: 28,
     weight: 850,
-    color: "#557c8c",
+    color: theme.muted,
     minSize: 22
   });
 
   drawTableShell(ctx, tableX, tableY, tableW, tableH);
-  ctx.fillStyle = "#062764";
+  ctx.fillStyle = theme.header;
   ctx.fillRect(tableX, tableY, tableW, headerH);
 
   let x = tableX;
@@ -1042,7 +1190,7 @@ function renderScheduleTableCanvas(page) {
       align: "center",
       size: 28,
       weight: 950,
-      color: "#ffffff",
+      color: theme.headerText,
       minSize: 22
     });
     x += colW[index];
@@ -1050,9 +1198,9 @@ function renderScheduleTableCanvas(page) {
 
   page.rows.forEach((row, rowIndex) => {
     const y = tableY + headerH + rowIndex * rowH;
-    ctx.fillStyle = rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc";
+    ctx.fillStyle = rowIndex % 2 === 0 ? theme.paper : theme.rowAlt;
     ctx.fillRect(tableX, y, tableW, rowH);
-    ctx.strokeStyle = "#e7e7e7";
+    ctx.strokeStyle = theme.softLine;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(tableX, y + rowH);
@@ -1067,7 +1215,7 @@ function renderScheduleTableCanvas(page) {
         align: isLeft ? "left" : "center",
         size: index === 0 ? 29 : 27,
         weight: index === 0 || index === 1 ? 900 : 760,
-        color: "#101010",
+        color: theme.ink,
         minSize: 18
       });
       cellX += colW[index];
@@ -1083,11 +1231,28 @@ function renderScheduleImageCanvas(page) {
   canvas.width = CARD_WIDTH;
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
-  const source = state.schedule.sourceCanvas;
+  const source = page?.canvas || state.schedule.sourceCanvas;
+  const theme = currentTheme();
 
   drawCardChrome(ctx, "TIMETABLE");
 
   if (!source || !page) {
+    drawScheduleCredit(ctx);
+    return canvas;
+  }
+
+  if (page.type === "schedulePhoto") {
+    const box = fitContain(source.width, source.height, scheduleBody);
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(box.x - 8, box.y - 8, box.width + 16, box.height + 16);
+    ctx.drawImage(source, box.x, box.y, box.width, box.height);
+    ctx.restore();
+    ctx.strokeStyle = theme.line;
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(box.x - 8, box.y - 8, box.width + 16, box.height + 16);
     drawScheduleCredit(ctx);
     return canvas;
   }
@@ -1106,7 +1271,7 @@ function renderScheduleImageCanvas(page) {
     drawHeight
   );
 
-  ctx.strokeStyle = "#dfe4ea";
+  ctx.strokeStyle = theme.line;
   ctx.lineWidth = 1.4;
   ctx.strokeRect(scheduleBody.x, scheduleBody.y, scheduleBody.width, drawHeight);
   drawScheduleCredit(ctx);
@@ -1121,6 +1286,7 @@ function renderScheduleCanvas(page) {
 }
 
 function renderScheduleCard() {
+  applyDesignToPreview();
   const pages = state.schedule.pages;
   const page = activeSchedulePage();
   const previewCanvas = renderScheduleCanvas(page);
@@ -1151,8 +1317,13 @@ function rebuildSchedulePages() {
 }
 
 async function buildScheduleFromInput() {
+  if (els.scheduleBuildMode.value === "photo") {
+    await buildScheduleFromImages();
+    return;
+  }
+
   if (!normalize(els.scheduleTextInput.value)) {
-    setStatus("사진에서 텍스트를 읽거나 시간표 내용을 붙여넣어주세요.");
+    setStatus("시간표 내용을 붙여넣거나 사진에서 텍스트를 읽어주세요.");
     return;
   }
 
@@ -1170,8 +1341,44 @@ async function buildScheduleFromInput() {
   }
 }
 
+async function buildScheduleFromImages() {
+  const files = selectedScheduleImageFiles();
+  if (!files.length) {
+    setStatus("JPG 또는 PNG 시간표 사진을 선택해주세요.");
+    return;
+  }
+
+  setMode("schedule");
+  setScheduleBusy(true);
+  setStatus(`${files.length}장 사진을 1080x1350 카드로 맞추는 중입니다.`);
+
+  try {
+    const images = [];
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      setStatus(`${files.length}장 중 ${index + 1}번째 사진을 정리하는 중입니다.`);
+      const image = await loadImageFromFile(file);
+      const canvas = trimScheduleCanvas(canvasFromImage(image));
+      images.push({ fileName: file.name || `schedule_${index + 1}`, canvas });
+    }
+
+    state.schedule.images = images;
+    state.schedule.sourceCanvas = images[0]?.canvas || null;
+    state.schedule.rows = [];
+    state.schedule.pages = buildSchedulePagesFromImages(images);
+    state.currentPage = 0;
+    renderScheduleCard();
+    setStatus(`${images.length}장 사진을 ${state.schedule.pages.length}장 카드로 만들었습니다.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`시간표 사진 카드를 만들지 못했습니다. ${error.message}`);
+  } finally {
+    setScheduleBusy(false);
+  }
+}
+
 async function readScheduleTextFromImage() {
-  const file = els.scheduleImageInput.files?.[0];
+  const file = selectedScheduleImageFiles()[0];
   if (!file) {
     setStatus("시간표 사진을 먼저 선택해주세요.");
     return;
@@ -1191,6 +1398,7 @@ async function readScheduleTextFromImage() {
         }
       });
       els.scheduleTextInput.value = normalizeScheduleText(result?.data?.text || "");
+      els.scheduleBuildMode.value = "text";
       setStatus("텍스트를 읽었습니다. 내용이 맞는지 확인한 뒤 재구성 시간표 만들기를 눌러주세요.");
       return;
     }
@@ -1209,20 +1417,21 @@ function renderCanvas(page) {
   canvas.width = CARD_WIDTH;
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
+  const theme = currentTheme();
 
   drawCardChrome(ctx, "RESULTS");
 
   drawCenteredMultiline(ctx, pageTitle(page), CARD_WIDTH / 2, 124, 900, 66, {
     size: 68,
     weight: 950,
-    color: "#062764",
+    color: theme.accent,
     minSize: 44
   });
 
   drawCenteredMultiline(ctx, normalize(els.subtitleInput.value), CARD_WIDTH / 2, 222, 820, 38, {
     size: 32,
     weight: 700,
-    color: "#557c8c",
+    color: theme.muted,
     minSize: 23
   });
 
@@ -1236,7 +1445,7 @@ function renderCanvas(page) {
   const tableH = headerH + page.rows.length * rowH;
 
   drawTableShell(ctx, tableX, tableY, tableW, tableH);
-  ctx.fillStyle = "#062764";
+  ctx.fillStyle = theme.header;
   ctx.fillRect(tableX, tableY, tableW, headerH);
 
   let x = tableX;
@@ -1253,7 +1462,7 @@ function renderCanvas(page) {
       align: "center",
       size: 34,
       weight: 950,
-      color: "#ffffff",
+      color: theme.headerText,
       minSize: 26
     });
     x += colW[index];
@@ -1262,13 +1471,13 @@ function renderCanvas(page) {
   page.rows.forEach((row, rowIndex) => {
     const y = tableY + headerH + rowIndex * rowH;
     const numericRank = Number(row.rank);
-    ctx.fillStyle = numericRank === 1 ? "#fff4bd" : numericRank === 2 ? "#eef1f5" : numericRank === 3 ? "#f2decc" : rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc";
+    ctx.fillStyle = numericRank === 1 ? theme.medal1 : numericRank === 2 ? theme.medal2 : numericRank === 3 ? theme.medal3 : rowIndex % 2 === 0 ? theme.paper : theme.rowAlt;
     ctx.fillRect(tableX, y, tableW, rowH);
     if (numericRank >= 1 && numericRank <= 3) {
-      ctx.fillStyle = numericRank === 1 ? "#f1c84c" : numericRank === 2 ? "#aeb9c6" : "#c98d58";
+      ctx.fillStyle = theme.accent;
       ctx.fillRect(tableX, y, 8, rowH);
     }
-    ctx.strokeStyle = "#e7e7e7";
+    ctx.strokeStyle = theme.softLine;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(tableX, y + rowH);
@@ -1284,7 +1493,7 @@ function renderCanvas(page) {
         align: isLeft ? "left" : "center",
         size: isRecord ? 32 : 36,
         weight: index === 2 ? 760 : 900,
-        color: "#101010",
+        color: theme.ink,
         minSize: index === 2 ? 24 : 25
       });
       cellX += colW[index];
@@ -1295,7 +1504,7 @@ function renderCanvas(page) {
     align: "right",
     size: 24,
     weight: 700,
-    color: "#8a929d",
+    color: theme.muted,
     minSize: 20
   });
 
@@ -1335,7 +1544,8 @@ async function downloadPage(page, index) {
 function scheduleFilename(page, index) {
   const title = filenameSafe(normalize(els.scheduleTitleInput.value) || "경기시간표");
   const pageNo = String(index + 1).padStart(2, "0");
-  const suffix = page?.type === "cover" ? "표지" : "시간표";
+  const photoName = page?.type === "schedulePhoto" ? filenameSafe(page.fileName || `사진_${page.imageIndex || pageNo}`) : "";
+  const suffix = page?.type === "cover" ? "표지" : photoName ? `시간표_${photoName}` : "시간표";
   return `${pageNo}_${title}_${suffix}.png`;
 }
 
@@ -1553,6 +1763,15 @@ els.subtitleInput.addEventListener("input", () => {
   renderCard();
 });
 
+els.designSelect.addEventListener("change", () => {
+  applyDesignToPreview();
+  if (state.mode === "schedule") {
+    renderScheduleCard();
+  } else {
+    renderCard();
+  }
+});
+
 els.scheduleTitleInput.addEventListener("input", () => {
   if (state.mode === "schedule") {
     renderScheduleCard();
@@ -1566,15 +1785,31 @@ els.scheduleTextInput.addEventListener("input", () => {
 });
 
 els.scheduleCoverInput.addEventListener("change", () => {
-  if (normalize(els.scheduleTextInput.value)) {
+  if (els.scheduleBuildMode.value === "photo" && state.schedule.images.length) {
+    state.schedule.pages = buildSchedulePagesFromImages(state.schedule.images);
+    state.currentPage = Math.min(state.currentPage, state.schedule.pages.length - 1);
+    renderScheduleCard();
+  } else if (normalize(els.scheduleTextInput.value)) {
     rebuildSchedulePages();
   }
 });
 
 els.scheduleImageInput.addEventListener("change", () => {
-  if (els.scheduleImageInput.files?.[0]) {
+  const count = selectedScheduleImageFiles().length;
+  if (count) {
     setMode("schedule");
-    setStatus("사진을 선택했습니다. 사진에서 텍스트 읽기를 눌러주세요.");
+    els.scheduleBuildMode.value = "photo";
+    setStatus(`${count}장 사진을 선택했습니다. 시간표 카드 만들기를 눌러주세요.`);
+  }
+});
+
+els.scheduleBuildMode.addEventListener("change", () => {
+  if (els.scheduleBuildMode.value === "photo" && state.schedule.images.length) {
+    state.schedule.pages = buildSchedulePagesFromImages(state.schedule.images);
+    state.currentPage = 0;
+    renderScheduleCard();
+  } else if (els.scheduleBuildMode.value === "text" && normalize(els.scheduleTextInput.value)) {
+    rebuildSchedulePages();
   }
 });
 
@@ -1633,5 +1868,6 @@ els.downloadAll.addEventListener("click", () => {
   }
 });
 
+applyDesignToPreview();
 renderSample("샘플 카드가 준비되었습니다.");
 loadTournaments();
