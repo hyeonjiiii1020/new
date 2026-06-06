@@ -88,8 +88,23 @@
             </label>
 
             <label class="field wide">
-              <span>트랙/필드 시간표 사진</span>
-              <input id="scheduleImageInput" type="file" accept="image/*,.jpg,.jpeg,.png,.webp" multiple>
+              <span>일차</span>
+              <input id="scheduleDayInput" type="text" placeholder="제2일 경기">
+            </label>
+
+            <label class="field wide">
+              <span>날짜</span>
+              <input id="scheduleDateInput" type="text" placeholder="2026. 6. 6(토)">
+            </label>
+
+            <label class="field wide">
+              <span>트랙 경기 표</span>
+              <textarea id="scheduleTrackInput" rows="9" placeholder="08:00 | 20kmW | 남대/남일/여일 | 결승&#10;08:05 | 10kmW | 남고/여고 | 결승&#10;10:00 | 110mH | 남고/남대/남일 | 10종(6)"></textarea>
+            </label>
+
+            <label class="field wide">
+              <span>필드 경기 표</span>
+              <textarea id="scheduleFieldInput" rows="7" placeholder="10:00 | 장대높이뛰기 | 여고 | 결승&#10;12:30 | 멀리뛰기 | 남대 | 결승"></textarea>
             </label>
           </div>
 
@@ -98,7 +113,7 @@
             <span>표지 포함</span>
           </label>
 
-          <button id="buildScheduleBtn" class="primary wide-button" type="button">트랙·필드 카드 만들기</button>
+          <button id="buildScheduleBtn" class="primary wide-button" type="button">시간표 카드 만들기</button>
         </div>
 
         <div class="status-row">
