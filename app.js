@@ -55,6 +55,8 @@ const els = {
   cardRows: $("#cardRows"),
   cardPreview: $("#cardPreview"),
   scheduleTitleInput: $("#scheduleTitleInput"),
+  scheduleSourceMode: $("#scheduleSourceMode"),
+  schedulePhotoInput: $("#schedulePhotoInput"),
   scheduleDayInput: $("#scheduleDayInput"),
   scheduleDateInput: $("#scheduleDateInput"),
   scheduleTrackInput: $("#scheduleTrackInput"),
@@ -285,7 +287,7 @@ function setMode(mode) {
     renderCard();
   } else {
     if (!state.schedule.pages.length) {
-      setStatus("대회명, 일차, 날짜와 시간표 내용을 입력해주세요.");
+      setStatus("시간표 사진을 선택하거나 시간표 내용을 입력해주세요.");
     }
     renderScheduleCard();
   }
@@ -609,6 +611,8 @@ function setBusy(isBusy) {
 
 function setScheduleBusy(isBusy) {
   els.buildScheduleBtn.disabled = isBusy;
+  els.scheduleSourceMode.disabled = isBusy;
+  els.schedulePhotoInput.disabled = isBusy;
   els.scheduleDayInput.disabled = isBusy;
   els.scheduleDateInput.disabled = isBusy;
   els.scheduleTrackInput.disabled = isBusy;
@@ -842,6 +846,12 @@ function fitContain(sourceWidth, sourceHeight, box) {
   };
 }
 
+function selectedSchedulePhotoFiles() {
+  return [...(els.schedulePhotoInput.files || [])].filter((file) =>
+    file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(file.name)
+  );
+}
+
 function scheduleRowScores(canvas) {
   const ctx = canvas.getContext("2d");
   const { width, height } = canvas;
@@ -1018,6 +1028,7 @@ function buildSchedulePagesFromRows(rows) {
 }
 
 function scheduleDisplaySection(section) {
+  if (/시간표/.test(section)) return "경기 시간표";
   return /필/.test(section) ? "필드 경기" : "트랙 경기";
 }
 
@@ -1044,6 +1055,26 @@ function buildDesignedSchedulePages() {
   }
 
   return { pages, rows };
+}
+
+function buildSchedulePagesFromPhotos(images) {
+  const pages = [];
+  if (els.scheduleCoverInput.checked) {
+    pages.push({ type: "cover" });
+  }
+
+  images.forEach((image, index) => {
+    const fallback = images.length === 1 ? "시간표" : SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`;
+    pages.push({
+      type: "scheduleDesignedPhoto",
+      canvas: image.canvas,
+      fileName: image.fileName,
+      imageIndex: index + 1,
+      section: image.section || fallback
+    });
+  });
+
+  return pages;
 }
 
 function buildSchedulePagesFromCanvas(sourceCanvas) {
@@ -1124,7 +1155,7 @@ function renderScheduleEmptyCanvas() {
     color: "#062764",
     minSize: 46
   });
-  drawFitText(ctx, "트랙/필드 시간표 내용을 입력해주세요.", CARD_WIDTH / 2, 730, 840, {
+  drawFitText(ctx, "시간표 사진을 선택하거나 내용을 입력해주세요.", CARD_WIDTH / 2, 730, 840, {
     align: "center",
     size: 28,
     weight: 700,
@@ -1529,6 +1560,50 @@ function renderDesignedScheduleCanvas(page) {
   return canvas;
 }
 
+function renderDesignedSchedulePhotoCanvas(page) {
+  const canvas = document.createElement("canvas");
+  canvas.width = CARD_WIDTH;
+  canvas.height = CARD_HEIGHT;
+  const ctx = canvas.getContext("2d");
+  const source = page?.canvas;
+  drawDesignedScheduleHeader(ctx, page);
+
+  const frame = {
+    x: 42,
+    y: 294,
+    width: CARD_WIDTH - 84,
+    height: CARD_HEIGHT - 358
+  };
+
+  ctx.fillStyle = "rgba(255,255,255,0.94)";
+  roundedRect(ctx, frame.x, frame.y, frame.width, frame.height, 8);
+  ctx.fill();
+  ctx.strokeStyle = "#08366f";
+  ctx.lineWidth = 2;
+  roundedRect(ctx, frame.x, frame.y, frame.width, frame.height, 8);
+  ctx.stroke();
+
+  if (source) {
+    const imageBox = {
+      x: frame.x + 18,
+      y: frame.y + 18,
+      width: frame.width - 36,
+      height: frame.height - 36
+    };
+    const box = fitContain(source.width, source.height, imageBox);
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(box.x, box.y, box.width, box.height);
+    ctx.drawImage(source, box.x, box.y, box.width, box.height);
+    ctx.restore();
+  }
+
+  drawScheduleCredit(ctx);
+  return canvas;
+}
+
 function renderScheduleImageCanvas(page) {
   const canvas = document.createElement("canvas");
   canvas.width = CARD_WIDTH;
@@ -1606,6 +1681,7 @@ function renderScheduleCanvas(page) {
   if (!page) return renderScheduleEmptyCanvas();
   if (page.type === "cover") return renderScheduleCoverCanvas();
   if (page.type === "scheduleDesigned") return renderDesignedScheduleCanvas(page);
+  if (page.type === "scheduleDesignedPhoto") return renderDesignedSchedulePhotoCanvas(page);
   if (page.type === "scheduleTable") return renderScheduleTableCanvas(page);
   return renderScheduleImageCanvas(page);
 }
@@ -1625,6 +1701,15 @@ function renderScheduleCard() {
 }
 
 async function buildScheduleFromInput() {
+  if (els.scheduleSourceMode.value === "photo") {
+    await buildScheduleFromPhotos();
+    return;
+  }
+
+  await buildScheduleFromTableInputs();
+}
+
+async function buildScheduleFromTableInputs() {
   const { pages, rows } = buildDesignedSchedulePages();
   if (!rows.length) {
     setStatus("트랙 또는 필드 시간표 내용을 입력해주세요.");
@@ -1651,11 +1736,52 @@ async function buildScheduleFromInput() {
   }
 }
 
+async function buildScheduleFromPhotos() {
+  const files = selectedSchedulePhotoFiles();
+  if (!files.length) {
+    setStatus("시간표 사진을 선택해주세요.");
+    return;
+  }
+
+  setMode("schedule");
+  setScheduleBusy(true);
+  setStatus(`${files.length}장 시간표 사진을 카드로 정리하는 중입니다.`);
+
+  try {
+    const images = [];
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      const image = await loadImageFromFile(file);
+      const canvas = trimScheduleCanvas(canvasFromImage(image));
+      const section = files.length === 1 ? "시간표" : SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`;
+      images.push({ fileName: file.name || `schedule_${index + 1}`, canvas, section });
+    }
+
+    state.schedule.images = images;
+    state.schedule.sourceCanvas = images[0]?.canvas || null;
+    state.schedule.rows = [];
+    state.schedule.pages = buildSchedulePagesFromPhotos(images);
+    state.currentPage = 0;
+    renderScheduleCard();
+    setStatus(`${images.length}장 사진을 ${state.schedule.pages.length}장 시간표 카드로 만들었습니다.`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`시간표 사진 카드를 만들지 못했습니다. ${error.message}`);
+  } finally {
+    setScheduleBusy(false);
+  }
+}
+
 function rebuildDesignedSchedulePreview() {
-  const { pages, rows } = buildDesignedSchedulePages();
-  state.schedule.rows = rows;
-  state.schedule.pages = pages;
-  state.currentPage = Math.min(state.currentPage, Math.max(0, pages.length - 1));
+  if (els.scheduleSourceMode.value === "photo" && state.schedule.images.length) {
+    state.schedule.rows = [];
+    state.schedule.pages = buildSchedulePagesFromPhotos(state.schedule.images);
+  } else {
+    const { pages, rows } = buildDesignedSchedulePages();
+    state.schedule.rows = rows;
+    state.schedule.pages = pages;
+  }
+  state.currentPage = Math.min(state.currentPage, Math.max(0, state.schedule.pages.length - 1));
   renderScheduleCard();
 }
 
@@ -1791,7 +1917,7 @@ async function downloadPage(page, index) {
 function scheduleFilename(page, index) {
   const title = filenameSafe(normalize(els.scheduleTitleInput.value) || "경기시간표");
   const pageNo = String(index + 1).padStart(2, "0");
-  const photoName = page?.type === "schedulePhoto" ? filenameSafe(page.fileName || `사진_${page.imageIndex || pageNo}`) : "";
+  const photoName = page?.type === "schedulePhoto" || page?.type === "scheduleDesignedPhoto" ? filenameSafe(page.fileName || `사진_${page.imageIndex || pageNo}`) : "";
   const sectionName = page?.type === "scheduleDesigned" ? filenameSafe(scheduleDisplaySection(page.section)) : "";
   const suffix = page?.type === "cover" ? "표지" : sectionName ? sectionName : photoName ? `시간표_${photoName}` : "시간표";
   return `${pageNo}_${title}_${suffix}.png`;
@@ -2023,6 +2149,21 @@ els.designSelect.addEventListener("change", () => {
 els.scheduleTitleInput.addEventListener("input", () => {
   if (state.mode === "schedule") {
     renderScheduleCard();
+  }
+});
+
+els.scheduleSourceMode.addEventListener("change", () => {
+  if (state.mode === "schedule" && state.schedule.pages.length) {
+    rebuildDesignedSchedulePreview();
+  }
+});
+
+els.schedulePhotoInput.addEventListener("change", () => {
+  const count = selectedSchedulePhotoFiles().length;
+  if (count) {
+    setMode("schedule");
+    els.scheduleSourceMode.value = "photo";
+    setStatus(`${count}장 시간표 사진을 선택했습니다.`);
   }
 });
 
