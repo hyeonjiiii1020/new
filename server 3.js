@@ -16,7 +16,7 @@ const TOURNAMENTS = [
     period: "2026-06-05 ~ 2026-06-09",
     place: "밀양",
     reg_year: "2026",
-    to_cd: "E010010601",
+    to_cd: "E016370011",
     gubun: "E",
     domestic: "0",
     resultType: "TRM",
