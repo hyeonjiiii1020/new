@@ -55,15 +55,14 @@ const els = {
   cardRows: $("#cardRows"),
   cardPreview: $("#cardPreview"),
   scheduleTitleInput: $("#scheduleTitleInput"),
-  scheduleBuildMode: $("#scheduleBuildMode"),
   scheduleImageInput: $("#scheduleImageInput"),
-  readScheduleBtn: $("#readScheduleBtn"),
-  scheduleTextInput: $("#scheduleTextInput"),
   scheduleCoverInput: $("#scheduleCoverInput"),
   buildScheduleBtn: $("#buildScheduleBtn"),
   schedulePreview: $("#schedulePreview"),
   schedulePreviewImage: $("#schedulePreviewImage")
 };
+
+const SCHEDULE_SECTION_LABELS = ["트랙 경기", "필드 경기"];
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -78,9 +77,9 @@ const sampleRows = [
 
 const scheduleBody = {
   x: 64,
-  y: 84,
+  y: 132,
   width: 952,
-  height: 1196
+  height: 1148
 };
 
 const CARD_THEMES = {
@@ -607,7 +606,6 @@ function setBusy(isBusy) {
 
 function setScheduleBusy(isBusy) {
   els.buildScheduleBtn.disabled = isBusy;
-  els.readScheduleBtn.disabled = isBusy;
   els.scheduleImageInput.disabled = isBusy;
 }
 
@@ -788,6 +786,44 @@ function trimScheduleCanvas(canvas) {
   return output;
 }
 
+function enhanceScheduleCanvas(canvas) {
+  const output = document.createElement("canvas");
+  output.width = canvas.width;
+  output.height = canvas.height;
+  const ctx = output.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, output.width, output.height);
+  ctx.drawImage(canvas, 0, 0);
+
+  const image = ctx.getImageData(0, 0, output.width, output.height);
+  const { data } = image;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    const lightness = red * 0.299 + green * 0.587 + blue * 0.114;
+    const contrast = Math.max(red, green, blue) - Math.min(red, green, blue);
+
+    if (lightness < 168 || (lightness < 214 && contrast > 18)) {
+      data[index] = 18;
+      data[index + 1] = 18;
+      data[index + 2] = 18;
+    } else if (lightness > 232 && contrast < 20) {
+      data[index] = 255;
+      data[index + 1] = 255;
+      data[index + 2] = 255;
+    } else {
+      const value = Math.max(0, Math.min(255, (lightness - 145) * 1.9));
+      data[index] = value;
+      data[index + 1] = value;
+      data[index + 2] = value;
+    }
+    data[index + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  return output;
+}
+
 function fitContain(sourceWidth, sourceHeight, box) {
   const scale = Math.min(box.width / sourceWidth, box.height / sourceHeight);
   const width = sourceWidth * scale;
@@ -803,7 +839,7 @@ function fitContain(sourceWidth, sourceHeight, box) {
 function selectedScheduleImageFiles() {
   return [...(els.scheduleImageInput.files || [])].filter((file) =>
     file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(file.name)
-  );
+  ).slice(0, 2);
 }
 
 function scheduleRowScores(canvas) {
@@ -1028,7 +1064,8 @@ function buildSchedulePagesFromImages(images) {
       type: "schedulePhoto",
       canvas: image.canvas,
       fileName: image.fileName,
-      imageIndex: index + 1
+      imageIndex: index + 1,
+      section: image.section || SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`
     });
   });
 
@@ -1058,7 +1095,7 @@ function renderScheduleEmptyCanvas() {
     color: "#062764",
     minSize: 46
   });
-  drawFitText(ctx, "사진에서 텍스트를 읽거나 시간표 내용을 붙여넣어주세요.", CARD_WIDTH / 2, 730, 840, {
+  drawFitText(ctx, "트랙/필드 시간표 사진을 선택해주세요.", CARD_WIDTH / 2, 730, 840, {
     align: "center",
     size: 28,
     weight: 700,
@@ -1242,6 +1279,27 @@ function renderScheduleImageCanvas(page) {
   }
 
   if (page.type === "schedulePhoto") {
+    drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 54, 640, {
+      align: "center",
+      size: 46,
+      weight: 950,
+      color: theme.ink,
+      minSize: 34
+    });
+    const badgeW = 300;
+    const badgeH = 44;
+    const badgeX = (CARD_WIDTH - badgeW) / 2;
+    const badgeY = 80;
+    ctx.fillStyle = theme.header;
+    ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+    drawFitText(ctx, page.section || "시간표", CARD_WIDTH / 2, badgeY + badgeH / 2, badgeW - 34, {
+      align: "center",
+      size: 28,
+      weight: 950,
+      color: theme.headerText,
+      minSize: 22
+    });
+
     const box = fitContain(source.width, source.height, scheduleBody);
     ctx.save();
     ctx.imageSmoothingEnabled = true;
@@ -1299,67 +1357,30 @@ function renderScheduleCard() {
   els.rowCount.textContent = `${pages.length}장`;
 }
 
-function rebuildSchedulePages() {
-  const rows = parseScheduleText(els.scheduleTextInput.value);
-  state.schedule.rows = rows;
-  if (!rows.length) {
-    state.schedule.pages = [];
-    state.currentPage = 0;
-    renderScheduleCard();
-    setStatus("시간표 내용을 읽지 못했습니다. 시간표 내용을 확인해주세요.");
-    return;
-  }
-
-  state.schedule.pages = buildSchedulePagesFromRows(rows);
-  state.currentPage = 0;
-  renderScheduleCard();
-  setStatus(`${rows.length}개 경기, ${state.schedule.pages.length}장으로 재구성했습니다.`);
-}
-
 async function buildScheduleFromInput() {
-  if (els.scheduleBuildMode.value === "photo") {
-    await buildScheduleFromImages();
-    return;
-  }
-
-  if (!normalize(els.scheduleTextInput.value)) {
-    setStatus("시간표 내용을 붙여넣거나 사진에서 텍스트를 읽어주세요.");
-    return;
-  }
-
-  setMode("schedule");
-  setScheduleBusy(true);
-  setStatus("시간표를 카드뉴스 양식으로 재구성하는 중입니다.");
-
-  try {
-    rebuildSchedulePages();
-  } catch (error) {
-    console.error(error);
-    setStatus(`시간표 카드를 만들지 못했습니다. ${error.message}`);
-  } finally {
-    setScheduleBusy(false);
-  }
+  return buildScheduleFromImages();
 }
 
 async function buildScheduleFromImages() {
   const files = selectedScheduleImageFiles();
   if (!files.length) {
-    setStatus("JPG 또는 PNG 시간표 사진을 선택해주세요.");
+    setStatus("트랙/필드 시간표 사진을 선택해주세요.");
     return;
   }
 
   setMode("schedule");
   setScheduleBusy(true);
-  setStatus(`${files.length}장 사진을 1080x1350 카드로 맞추는 중입니다.`);
+  setStatus(`${files.length}장 사진을 1080x1350 카드로 정리하는 중입니다.`);
 
   try {
     const images = [];
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
-      setStatus(`${files.length}장 중 ${index + 1}번째 사진을 정리하는 중입니다.`);
+      const section = SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`;
+      setStatus(`${section} 사진을 정리하는 중입니다.`);
       const image = await loadImageFromFile(file);
-      const canvas = trimScheduleCanvas(canvasFromImage(image));
-      images.push({ fileName: file.name || `schedule_${index + 1}`, canvas });
+      const canvas = enhanceScheduleCanvas(trimScheduleCanvas(canvasFromImage(image)));
+      images.push({ fileName: file.name || `schedule_${index + 1}`, canvas, section });
     }
 
     state.schedule.images = images;
@@ -1368,45 +1389,10 @@ async function buildScheduleFromImages() {
     state.schedule.pages = buildSchedulePagesFromImages(images);
     state.currentPage = 0;
     renderScheduleCard();
-    setStatus(`${images.length}장 사진을 ${state.schedule.pages.length}장 카드로 만들었습니다.`);
+    setStatus(`${images.length}장 사진을 ${state.schedule.pages.length}장 카드로 만들었습니다. 첫 번째는 트랙, 두 번째는 필드로 처리했습니다.`);
   } catch (error) {
     console.error(error);
     setStatus(`시간표 사진 카드를 만들지 못했습니다. ${error.message}`);
-  } finally {
-    setScheduleBusy(false);
-  }
-}
-
-async function readScheduleTextFromImage() {
-  const file = selectedScheduleImageFiles()[0];
-  if (!file) {
-    setStatus("시간표 사진을 먼저 선택해주세요.");
-    return;
-  }
-
-  setMode("schedule");
-  setScheduleBusy(true);
-  setStatus("사진에서 시간표 텍스트를 읽는 중입니다. 잠시만 기다려주세요.");
-
-  try {
-    if (window.Tesseract?.recognize) {
-      const result = await window.Tesseract.recognize(file, "kor+eng", {
-        logger: (message) => {
-          if (message.status === "recognizing text" && typeof message.progress === "number") {
-            setStatus(`사진에서 시간표 텍스트를 읽는 중입니다. ${Math.round(message.progress * 100)}%`);
-          }
-        }
-      });
-      els.scheduleTextInput.value = normalizeScheduleText(result?.data?.text || "");
-      els.scheduleBuildMode.value = "text";
-      setStatus("텍스트를 읽었습니다. 내용이 맞는지 확인한 뒤 재구성 시간표 만들기를 눌러주세요.");
-      return;
-    }
-
-    setStatus("텍스트 읽기 기능을 불러오지 못했습니다. 시간표 내용을 직접 붙여넣어주세요.");
-  } catch (error) {
-    console.error(error);
-    setStatus("사진 읽기에 실패했습니다. 시간표 내용을 직접 붙여넣어주세요.");
   } finally {
     setScheduleBusy(false);
   }
@@ -1778,19 +1764,11 @@ els.scheduleTitleInput.addEventListener("input", () => {
   }
 });
 
-els.scheduleTextInput.addEventListener("input", () => {
-  if (state.mode === "schedule" && state.schedule.pages.length) {
-    rebuildSchedulePages();
-  }
-});
-
 els.scheduleCoverInput.addEventListener("change", () => {
-  if (els.scheduleBuildMode.value === "photo" && state.schedule.images.length) {
+  if (state.schedule.images.length) {
     state.schedule.pages = buildSchedulePagesFromImages(state.schedule.images);
     state.currentPage = Math.min(state.currentPage, state.schedule.pages.length - 1);
     renderScheduleCard();
-  } else if (normalize(els.scheduleTextInput.value)) {
-    rebuildSchedulePages();
   }
 });
 
@@ -1798,23 +1776,8 @@ els.scheduleImageInput.addEventListener("change", () => {
   const count = selectedScheduleImageFiles().length;
   if (count) {
     setMode("schedule");
-    els.scheduleBuildMode.value = "photo";
-    setStatus(`${count}장 사진을 선택했습니다. 시간표 카드 만들기를 눌러주세요.`);
+    setStatus(`${count}장 사진을 선택했습니다. 첫 번째는 트랙, 두 번째는 필드로 만듭니다.`);
   }
-});
-
-els.scheduleBuildMode.addEventListener("change", () => {
-  if (els.scheduleBuildMode.value === "photo" && state.schedule.images.length) {
-    state.schedule.pages = buildSchedulePagesFromImages(state.schedule.images);
-    state.currentPage = 0;
-    renderScheduleCard();
-  } else if (els.scheduleBuildMode.value === "text" && normalize(els.scheduleTextInput.value)) {
-    rebuildSchedulePages();
-  }
-});
-
-els.readScheduleBtn.addEventListener("click", () => {
-  readScheduleTextFromImage();
 });
 
 els.buildScheduleBtn.addEventListener("click", () => {
