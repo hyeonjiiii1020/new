@@ -406,13 +406,32 @@ h1 {
 }
 
 .card-head h2 {
+  display: flex;
+  min-height: 62px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   margin: 0;
   color: var(--navy);
-  font-size: 34px;
-  line-height: 1.14;
+  line-height: 1.05;
   font-weight: 950;
   letter-spacing: 0;
   word-break: keep-all;
+}
+
+.card-head .title-main {
+  max-width: 100%;
+  font-size: 36px;
+  line-height: 1.05;
+}
+
+.card-head .title-detail {
+  max-width: 100%;
+  color: #101010;
+  font-size: 19px;
+  line-height: 1.15;
+  font-weight: 850;
 }
 
 .result-card[data-design="press"] .card-head h2,
@@ -425,7 +444,7 @@ h1 {
 }
 
 .card-head p {
-  margin: 12px 0 0;
+  margin: 8px 0 0;
   color: #557c8c;
   font-size: 15px;
   font-weight: 700;
@@ -440,7 +459,7 @@ h1 {
 
 .result-table {
   width: 100%;
-  margin-top: 34px;
+  margin-top: 26px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -528,6 +547,18 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
+}
+
+.result-card.full-page-result .result-table {
+  margin-top: 22px;
+}
+
+.result-card.full-page-result .result-table th {
+  height: 40px;
+}
+
+.result-card.full-page-result .result-table td {
+  height: 46px;
 }
 
 .result-table tbody tr:nth-child(even):not(.medal-1):not(.medal-2):not(.medal-3) td {

@@ -588,6 +588,38 @@ function pageTitle(page = currentPage()) {
   return page?.heat ? `${title} ${page.heat}` : title;
 }
 
+function resultTitleParts(page = currentPage()) {
+  const title = normalize(els.titleInput.value) || "경기 결과";
+  const meta = state.result?.meta || {};
+  const eventName = normalize(meta.eventName || state.selectedEvent?.eventName || "");
+  const division = normalize(meta.division || state.selectedEvent?.division || "");
+  const round = normalize(state.selectedEvent?.round || meta.round || "");
+  const heat = normalize(page?.heat || "");
+  const detail = [division, round, heat].filter(Boolean).join(" ");
+
+  if (!state.manualTitle && eventName) {
+    return {
+      main: `🏃 ${eventName}`,
+      detail
+    };
+  }
+
+  const plainTitle = title.replace(/^🏃\s*/, "");
+  if (eventName && plainTitle.startsWith(eventName)) {
+    const prefix = title.startsWith("🏃") ? "🏃 " : "";
+    const rest = normalize(`${plainTitle.slice(eventName.length)} ${heat}`);
+    return {
+      main: `${prefix}${eventName}`,
+      detail: rest
+    };
+  }
+
+  return {
+    main: page?.heat ? `${title} ${page.heat}` : title,
+    detail: ""
+  };
+}
+
 function currentPage() {
   return state.pages[state.currentPage] || { heat: "", rows: [] };
 }
@@ -595,10 +627,22 @@ function currentPage() {
 function renderCard() {
   applyDesignToPreview();
   const page = currentPage();
+  const titleParts = resultTitleParts(page);
   const headers = resultHeaders();
-  els.cardTitle.textContent = pageTitle(page);
+  els.cardTitle.innerHTML = "";
+  const titleMain = document.createElement("span");
+  titleMain.className = "title-main";
+  titleMain.textContent = titleParts.main;
+  els.cardTitle.append(titleMain);
+  if (titleParts.detail) {
+    const titleDetail = document.createElement("span");
+    titleDetail.className = "title-detail";
+    titleDetail.textContent = titleParts.detail;
+    els.cardTitle.append(titleDetail);
+  }
   els.cardSubtitle.textContent = normalize(els.subtitleInput.value);
   els.cardPreview.classList.toggle("relay-result", isRelayEvent());
+  els.cardPreview.classList.toggle("full-page-result", page.rows.length >= ROWS_PER_PAGE);
   els.cardPreview.querySelectorAll(".result-table thead th").forEach((cell, index) => {
     cell.textContent = headers[index] || "";
   });
@@ -721,6 +765,40 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
       baseline: "middle"
     });
   });
+}
+
+function drawResultHeader(ctx, page) {
+  const theme = currentTheme();
+  const titleParts = resultTitleParts(page);
+  const hasDetail = Boolean(titleParts.detail);
+
+  drawCenteredMultiline(ctx, titleParts.main, CARD_WIDTH / 2, hasDetail ? 112 : 124, 900, 70, {
+    size: hasDetail ? 74 : 68,
+    weight: 950,
+    color: theme.accent,
+    minSize: hasDetail ? 46 : 44
+  });
+
+  if (hasDetail) {
+    drawFitText(ctx, titleParts.detail, CARD_WIDTH / 2, 184, 820, {
+      align: "center",
+      size: 38,
+      weight: 850,
+      color: theme.ink,
+      minSize: 26
+    });
+  }
+
+  drawCenteredMultiline(ctx, normalize(els.subtitleInput.value), CARD_WIDTH / 2, hasDetail ? 242 : 222, 820, 38, {
+    size: 32,
+    weight: 700,
+    color: theme.muted,
+    minSize: 23
+  });
+
+  return {
+    tableY: hasDetail ? 322 : 306
+  };
 }
 
 function drawCardChrome(ctx, label) {
@@ -1833,25 +1911,16 @@ function renderCanvas(page) {
 
   drawCardChrome(ctx, "RESULTS");
 
-  drawCenteredMultiline(ctx, pageTitle(page), CARD_WIDTH / 2, 124, 900, 66, {
-    size: 68,
-    weight: 950,
-    color: theme.accent,
-    minSize: 44
-  });
-
-  drawCenteredMultiline(ctx, normalize(els.subtitleInput.value), CARD_WIDTH / 2, 222, 820, 38, {
-    size: 32,
-    weight: 700,
-    color: theme.muted,
-    minSize: 23
-  });
+  const headerLayout = drawResultHeader(ctx, page);
 
   const tableX = 60;
-  const tableY = 306;
+  const tableY = headerLayout.tableY;
   const tableW = 960;
   const headerH = 70;
-  const rowH = 94;
+  const preferredRowH = page.rows.length >= ROWS_PER_PAGE ? 86 : 94;
+  const footerTop = CARD_HEIGHT - 142;
+  const availableRowArea = Math.max(preferredRowH, footerTop - tableY - headerH);
+  const rowH = page.rows.length ? Math.min(preferredRowH, Math.floor(availableRowArea / page.rows.length)) : preferredRowH;
   const colW = resultColumnWidths();
   const headers = resultHeaders();
   const tableH = headerH + page.rows.length * rowH;
