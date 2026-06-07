@@ -43,6 +43,7 @@ const MIRYANG_EVENT_SPECS = [
   ["3000mSC", "남자일반부", "결승", "순위처리", "15", "1B", "4", "", "TRM"],
   ["3000mSC", "여자일반부", "결승", "순위처리", "25", "1B", "4", "", "TRM"],
   ["100mH", "여자고등학교부", "결승", "순위처리", "23", "1C", "4", "", "TRM"],
+  ["높이뛰기", "여자중학교부", "결승", "경기완료", "22", "21", "4", "", "TRM"],
   ["높이뛰기", "남자대학교부", "결승", "순위처리", "14", "21", "4", "", "TRM"],
   ["높이뛰기", "남자일반부", "결승", "순위처리", "15", "21", "4", "", "TRM"],
   ["장대높이뛰기", "여자일반부", "결승", "순위처리", "25", "22", "4", "", "TRM"],
@@ -61,7 +62,10 @@ const MIRYANG_EVENT_SPECS = [
   ["4x100mR", "남자중학교부", "결승", "순위처리", "12", "51", "4", "", "TRM"],
   ["4x100mR", "남자일반부", "결승", "순위처리", "15", "51", "4", "", "TRM"],
   ["4x100mR", "여자중학교부", "결승", "순위처리", "22", "51", "4", "", "TRM"],
+  ["4x100mR", "여자일반부", "결승", "순위처리", "25", "51", "4", "", "TRM"],
   ["4x400mR(Mixed)", "중학교부", "결승", "순위처리", "32", "54", "4", "", "TRM"],
+  ["4x800mR", "남자중학교부", "결승", "순위처리", "12", "56", "4", "", "TRM"],
+  ["4x800mR", "여자중학교부", "결승", "순위처리", "22", "56", "4", "", "TRM"],
   ["100m(10종)", "남자고등학교부", "결승", "경기완료", "13", "A1", "4", "", "TRM"],
   ["100m(10종)", "남자대학교부", "결승", "경기완료", "14", "A1", "4", "", "TRM"],
   ["100m(10종)", "남자일반부", "결승", "경기완료", "15", "A1", "4", "", "TRM"],
@@ -207,7 +211,7 @@ function parseEventList(html, tournament) {
     if (!params || cells.length < 4) continue;
 
     const [eventName, division, roundLabel, status] = cells;
-    if (!division.endsWith("부")) continue;
+    if (!eventName || !division || !roundLabel) continue;
 
     const id = [
       params.kind_cd,
@@ -260,6 +264,100 @@ function fallbackEventsForTournament(tournament) {
   });
 }
 
+function isRelayEventName(name) {
+  const text = String(name || "")
+    .replace(/×/g, "x")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  return /\d+x\d+(?:m)?r/.test(text) || text.includes("계주") || text.includes("relay");
+}
+
+function joinRelayNames(names) {
+  const seen = new Set();
+  return names
+    .map((name) => String(name || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((name) => {
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return true;
+    })
+    .join(" ");
+}
+
+function parseRelayRows(section) {
+  const rows = [];
+  const tableRe = /<table\b[^>]*class=["'][^"']*team_table[^"']*["'][^>]*>([\s\S]*?)<\/table>/gi;
+
+  for (const tableMatch of section.matchAll(tableRe)) {
+    const table = tableMatch[1];
+    if (/twotable/i.test(table)) continue;
+    if (!/순위/.test(table) || !/성명/.test(table) || !/기록/.test(table)) continue;
+
+    const heat = cleanText((table.match(/<th\b[^>]*class=["'][^"']*sm_th_title[^"']*["'][^>]*>([\s\S]*?)<\/th>/i) || [])[1] || "");
+    const thead = (table.match(/<thead\b[^>]*>([\s\S]*?)<\/thead>/i) || [])[1] || "";
+    const headerRows = [...thead.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((match) => extractCells(match[1], "th"));
+    const headers = headerRows.reverse().find((list) => list.includes("순위") && list.includes("성명")) || [];
+    const tbody = (table.match(/<tbody\b[^>]*>([\s\S]*?)<\/tbody>/i) || [])[1] || "";
+
+    let current = null;
+    const finishCurrent = () => {
+      if (!current) return;
+      const statusText = `${current.record} ${current.remark}`.toUpperCase();
+      if (current.rank && current.record && !/\b(DNS|DNF)\b|기권|실격/.test(statusText)) {
+        rows.push({
+          ...current,
+          name: joinRelayNames(current.names),
+          resultKind: "relay"
+        });
+      }
+      current = null;
+    };
+
+    for (const trMatch of tbody.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const cells = extractCells(trMatch[1], "td");
+      if (cells.length < 4) continue;
+
+      let rank = valueAt(headers, cells, ["순위"]);
+      let name = valueAt(headers, cells, ["성명"]);
+      let team = valueAt(headers, cells, ["소속"]);
+      let record = valueAt(headers, cells, ["기록"]);
+      let wind = valueAt(headers, cells, ["풍속"]);
+      let remark = valueAt(headers, cells, ["비고"]);
+
+      if (!headers.length) {
+        rank = cells[0] || "";
+        name = cells[3] || "";
+        team = cells[4] || "";
+        record = cells[5] || "";
+        wind = cells[6] || "";
+        remark = cells[7] || "";
+      }
+
+      if (rank && record) {
+        finishCurrent();
+        current = {
+          rank,
+          names: [],
+          team,
+          record,
+          wind,
+          heat,
+          remark
+        };
+      }
+
+      if (current && name) {
+        current.names.push(name);
+      }
+    }
+
+    finishCurrent();
+  }
+
+  return rows;
+}
+
 function parseResultPage(html, tournament) {
   const section = extractKorSection(html);
   const inputValues = extractInputValues(section);
@@ -273,6 +371,13 @@ function parseResultPage(html, tournament) {
     date: inputValues[3] || "",
     fetchedAt: new Date().toISOString()
   };
+
+  if (isRelayEventName(meta.eventName)) {
+    const relayRows = parseRelayRows(section);
+    if (relayRows.length) {
+      return { tournament, meta, rows: relayRows };
+    }
+  }
 
   const rows = [];
   for (const combinedRow of parseNestedCombinedRows(section)) {
@@ -829,7 +934,7 @@ function parseNestedFieldRows(section) {
 
     const rowspanCells = top.filter((cell) => /rowspan\s*=\s*["']?2/i.test(cell.attrs));
     const recordCell = [...rowspanCells].reverse().find((cell) => cell.text && cell.text !== top[0]?.text);
-    const rank = top[0]?.text || "";
+    const rank = top[0]?.text || (/^\d+$/.test(top[1]?.text || "") ? top[1].text : "");
     const name = top[3]?.text || "";
     const team = bottom[0]?.text || "";
     const record = recordCell?.text || "";

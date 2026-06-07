@@ -213,6 +213,35 @@ function isCombinedOverallEvent() {
   return /(?:10|8|7)\s*종\s*경기/.test(eventName);
 }
 
+function isRelayEventName(name) {
+  const text = normalize(name)
+    .replace(/×/g, "x")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  return /\d+x\d+(?:m)?r/.test(text) || text.includes("계주") || text.includes("relay");
+}
+
+function isRelayEvent() {
+  const eventName = normalize(state.result?.meta?.eventName || state.selectedEvent?.eventName || "");
+  return isRelayEventName(eventName);
+}
+
+function resultHeaders() {
+  if (isRelayEvent()) return ["순위", "소속", "성명", "기록"];
+  return ["순위", "성명", "소속", isCombinedOverallEvent() ? "총점" : "기록"];
+}
+
+function resultValues(row) {
+  if (isRelayEvent()) {
+    return [rankText(row.rank), row.team, row.name, recordText(row)];
+  }
+  return [rankText(row.rank), row.name, row.team, recordText(row)];
+}
+
+function resultColumnWidths() {
+  return isRelayEvent() ? [118, 292, 382, 168] : [118, 178, 432, 232];
+}
+
 function isHigherRecordBetter() {
   const eventName = normalize(state.result?.meta?.eventName || state.selectedEvent?.eventName || "");
   const fieldEvents = [
@@ -299,7 +328,8 @@ function activeSchedulePage() {
 
 function eventMatches(event, query) {
   if (!query) return true;
-  const haystack = `${event.eventName} ${event.division} ${event.round} ${event.status}`.toLowerCase();
+  const relayTokens = isRelayEventName(event.eventName) ? " 계주 릴레이 relay" : "";
+  const haystack = `${event.eventName} ${event.division} ${event.round} ${event.status}${relayTokens}`.toLowerCase();
   return haystack.includes(query.toLowerCase());
 }
 
@@ -565,9 +595,14 @@ function currentPage() {
 function renderCard() {
   applyDesignToPreview();
   const page = currentPage();
+  const headers = resultHeaders();
   els.cardTitle.textContent = pageTitle(page);
   els.cardSubtitle.textContent = normalize(els.subtitleInput.value);
-  els.recordHeader.textContent = isCombinedOverallEvent() ? "총점" : "기록";
+  els.cardPreview.classList.toggle("relay-result", isRelayEvent());
+  els.cardPreview.querySelectorAll(".result-table thead th").forEach((cell, index) => {
+    cell.textContent = headers[index] || "";
+  });
+  els.recordHeader.textContent = headers[3] || "기록";
   els.cardRows.innerHTML = "";
 
   if (!page.rows.length) {
@@ -585,9 +620,13 @@ function renderCard() {
         tr.className = `medal-${resultRow.rank}`;
       }
 
-      [rankText(resultRow.rank), resultRow.name, resultRow.team, recordText(resultRow)].forEach((value) => {
+      resultValues(resultRow).forEach((value, index) => {
         const td = document.createElement("td");
         td.textContent = value;
+        if (isRelayEvent() && index === 2) {
+          const length = normalize(value).length;
+          td.style.fontSize = length >= 19 ? "12px" : length >= 15 ? "13px" : "14px";
+        }
         tr.append(td);
       });
       els.cardRows.append(tr);
@@ -1813,8 +1852,8 @@ function renderCanvas(page) {
   const tableW = 960;
   const headerH = 70;
   const rowH = 94;
-  const colW = [118, 178, 432, 232];
-  const headers = ["순위", "성명", "소속", isCombinedOverallEvent() ? "총점" : "기록"];
+  const colW = resultColumnWidths();
+  const headers = resultHeaders();
   const tableH = headerH + page.rows.length * rowH;
 
   drawTableShell(ctx, tableX, tableY, tableW, tableH);
@@ -1857,17 +1896,18 @@ function renderCanvas(page) {
     ctx.lineTo(tableX + tableW, y + rowH);
     ctx.stroke();
 
-    const values = [rankText(row.rank), row.name, row.team, recordText(row)];
+    const values = resultValues(row);
     let cellX = tableX;
     values.forEach((value, index) => {
-      const isLeft = index === 2;
+      const isRelay = isRelayEvent();
+      const isLeft = isRelay ? index === 1 || index === 2 : index === 2;
       const isRecord = index === 3;
       drawFitText(ctx, value, isLeft ? cellX + 24 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 32, {
         align: isLeft ? "left" : "center",
-        size: isRecord ? 32 : 36,
-        weight: index === 2 ? 760 : 900,
+        size: isRelay && index === 2 ? 30 : isRecord ? 32 : 36,
+        weight: isLeft ? 760 : 900,
         color: theme.ink,
-        minSize: index === 2 ? 24 : 25
+        minSize: isRelay && index === 2 ? 18 : isLeft ? 21 : 25
       });
       cellX += colW[index];
     });

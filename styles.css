@@ -496,6 +496,28 @@ h1 {
   width: 140px;
 }
 
+.result-card.relay-result .result-table {
+  font-size: 16px;
+}
+
+.result-card.relay-result .result-table th:nth-child(1) {
+  width: 60px;
+}
+
+.result-card.relay-result .result-table th:nth-child(2) {
+  width: 142px;
+  text-align: left;
+}
+
+.result-card.relay-result .result-table th:nth-child(3) {
+  width: 192px;
+  text-align: left;
+}
+
+.result-card.relay-result .result-table th:nth-child(4) {
+  width: 86px;
+}
+
 .result-table td {
   height: 50px;
   padding: 0 10px;
@@ -523,6 +545,24 @@ h1 {
 
 .result-table td:nth-child(3) {
   font-weight: 760;
+}
+
+.result-card.relay-result .result-table td {
+  padding: 0 8px;
+}
+
+.result-card.relay-result .result-table td:nth-child(2),
+.result-card.relay-result .result-table td:nth-child(3) {
+  text-align: left;
+}
+
+.result-card.relay-result .result-table td:nth-child(2) {
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.result-card.relay-result .result-table td:nth-child(3) {
+  font-weight: 850;
 }
 
 .result-table tr.medal-1 td {
