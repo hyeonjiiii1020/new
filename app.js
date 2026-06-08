@@ -239,7 +239,7 @@ function resultValues(row) {
 }
 
 function resultColumnWidths() {
-  return isRelayEvent() ? [118, 292, 382, 168] : [118, 178, 432, 232];
+  return isRelayEvent() ? [112, 260, 430, 158] : [118, 178, 432, 232];
 }
 
 function isHigherRecordBetter() {
@@ -668,8 +668,9 @@ function renderCard() {
         const td = document.createElement("td");
         td.textContent = value;
         if (isRelayEvent() && index === 2) {
+          td.className = "relay-names";
           const length = normalize(value).length;
-          td.style.fontSize = length >= 19 ? "12px" : length >= 15 ? "13px" : "14px";
+          td.style.fontSize = length >= 24 ? "10px" : length >= 19 ? "11px" : length >= 15 ? "12px" : "13px";
         }
         tr.append(td);
       });
@@ -764,6 +765,55 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
       align: "center",
       baseline: "middle"
     });
+  });
+}
+
+function relayNameLineCandidates(text) {
+  const names = normalize(text).split(/\s+/).filter(Boolean);
+  if (names.length <= 2) return [names.join(" ")].filter(Boolean);
+  const half = Math.ceil(names.length / 2);
+  return [
+    `${names.slice(0, half).join(" ")}\n${names.slice(half).join(" ")}`,
+    `${names.slice(0, 2).join(" ")}\n${names.slice(2).join(" ")}`,
+    `${names.slice(0, names.length - 1).join(" ")}\n${names.slice(-1).join(" ")}`
+  ].filter(Boolean);
+}
+
+function measureRelayNameLayout(ctx, text, maxWidth, maxHeight, options = {}) {
+  const candidates = relayNameLineCandidates(text);
+  const baseSize = options.size || 30;
+  const minSize = options.minSize || 16;
+  const weight = options.weight || 820;
+
+  for (const candidate of candidates) {
+    const lines = candidate.split("\n").filter(Boolean);
+    for (let fontSize = baseSize; fontSize >= minSize; fontSize -= 1) {
+      const lineHeight = Math.round(fontSize * 1.12);
+      ctx.font = `${weight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Arial, sans-serif`;
+      const fitsWidth = lines.every((line) => ctx.measureText(line).width <= maxWidth);
+      const fitsHeight = lines.length * lineHeight <= maxHeight;
+      if (fitsWidth && fitsHeight) return { lines, fontSize, lineHeight, weight };
+    }
+  }
+
+  return {
+    lines: candidates[0]?.split("\n").filter(Boolean) || [normalize(text)],
+    fontSize: minSize,
+    lineHeight: Math.round(minSize * 1.12),
+    weight
+  };
+}
+
+function drawRelayNames(ctx, text, x, y, maxWidth, maxHeight, options = {}) {
+  const layout = measureRelayNameLayout(ctx, text, maxWidth, maxHeight, options);
+  const color = options.color || "#101010";
+  const startY = y - ((layout.lines.length - 1) * layout.lineHeight) / 2;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color;
+  ctx.font = `${layout.weight} ${layout.fontSize}px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Arial, sans-serif`;
+  layout.lines.forEach((line, index) => {
+    ctx.fillText(line, x, startY + index * layout.lineHeight, maxWidth);
   });
 }
 
@@ -1971,6 +2021,16 @@ function renderCanvas(page) {
       const isRelay = isRelayEvent();
       const isLeft = isRelay ? index === 1 || index === 2 : index === 2;
       const isRecord = index === 3;
+      if (isRelay && index === 2) {
+        drawRelayNames(ctx, value, cellX + 24, y + rowH / 2, colW[index] - 36, rowH - 18, {
+          size: rowH <= 86 ? 29 : 31,
+          minSize: 17,
+          weight: 820,
+          color: theme.ink
+        });
+        cellX += colW[index];
+        return;
+      }
       drawFitText(ctx, value, isLeft ? cellX + 24 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 32, {
         align: isLeft ? "left" : "center",
         size: isRelay && index === 2 ? 30 : isRecord ? 32 : 36,

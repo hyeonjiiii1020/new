@@ -520,21 +520,21 @@ h1 {
 }
 
 .result-card.relay-result .result-table th:nth-child(1) {
-  width: 60px;
+  width: 56px;
 }
 
 .result-card.relay-result .result-table th:nth-child(2) {
-  width: 142px;
+  width: 130px;
   text-align: left;
 }
 
 .result-card.relay-result .result-table th:nth-child(3) {
-  width: 192px;
+  width: 216px;
   text-align: left;
 }
 
 .result-card.relay-result .result-table th:nth-child(4) {
-  width: 86px;
+  width: 78px;
 }
 
 .result-table td {
@@ -593,6 +593,11 @@ h1 {
 }
 
 .result-card.relay-result .result-table td:nth-child(3) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: keep-all;
+  line-height: 1.08;
   font-weight: 850;
 }
 
