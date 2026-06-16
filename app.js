@@ -10,6 +10,7 @@ const state = {
   selectedTournament: null,
   events: [],
   filteredEvents: [],
+  contentIdeas: [],
   selectedEvent: null,
   result: null,
   pages: [],
@@ -30,8 +31,10 @@ const $ = (selector) => document.querySelector(selector);
 const els = {
   resultModeBtn: $("#resultModeBtn"),
   scheduleModeBtn: $("#scheduleModeBtn"),
+  ideasModeBtn: $("#ideasModeBtn"),
   resultControls: $("#resultControls"),
   scheduleControls: $("#scheduleControls"),
+  ideasControls: $("#ideasControls"),
   tournamentSelect: $("#tournamentSelect"),
   eventSelect: $("#eventSelect"),
   eventSearch: $("#eventSearch"),
@@ -64,7 +67,12 @@ const els = {
   scheduleCoverInput: $("#scheduleCoverInput"),
   buildScheduleBtn: $("#buildScheduleBtn"),
   schedulePreview: $("#schedulePreview"),
-  schedulePreviewImage: $("#schedulePreviewImage")
+  schedulePreviewImage: $("#schedulePreviewImage"),
+  contentIdeasPanel: $("#contentIdeasPanel"),
+  ideasList: $("#ideasList"),
+  ideasUpdated: $("#ideasUpdated"),
+  refreshIdeasBtn: $("#refreshIdeasBtn"),
+  canvasToolbar: $(".canvas-toolbar")
 };
 
 const SCHEDULE_SECTION_LABELS = ["트랙 경기", "필드 경기"];
@@ -307,18 +315,26 @@ function setMode(mode) {
   state.mode = mode;
   els.resultModeBtn.classList.toggle("active", mode === "result");
   els.scheduleModeBtn.classList.toggle("active", mode === "schedule");
+  els.ideasModeBtn.classList.toggle("active", mode === "ideas");
   els.resultControls.classList.toggle("hidden", mode !== "result");
   els.scheduleControls.classList.toggle("hidden", mode !== "schedule");
+  els.ideasControls.classList.toggle("hidden", mode !== "ideas");
   els.cardPreview.classList.toggle("hidden", mode !== "result");
   els.schedulePreview.classList.toggle("hidden", mode !== "schedule");
+  els.contentIdeasPanel.classList.toggle("hidden", mode !== "ideas");
+  els.canvasToolbar.classList.toggle("hidden", mode === "ideas");
 
   if (mode === "result") {
     renderCard();
-  } else {
+  } else if (mode === "schedule") {
     if (!state.schedule.pages.length) {
       setStatus("시간표 사진을 선택하거나 시간표 내용을 입력해주세요.");
     }
     renderScheduleCard();
+  } else {
+    renderContentIdeas();
+    els.rowCount.textContent = `${state.contentIdeas.length}개`;
+    setStatus("공식 결과를 분석해 콘텐츠 후보를 추천합니다.");
   }
 }
 
@@ -495,6 +511,130 @@ async function loadSelectedResult() {
   } finally {
     setBusy(false);
   }
+}
+
+function setIdeasBusy(isBusy) {
+  els.refreshIdeasBtn.disabled = isBusy;
+}
+
+function eventParamKey(params = {}) {
+  return [
+    params.to_cd || "",
+    params.reg_year || "",
+    params.kind_cd || "",
+    params.detail_class_cd || "",
+    params.round || "",
+    params.gday || "",
+    params.resultType || ""
+  ].join("|");
+}
+
+function renderContentIdeas() {
+  els.ideasList.innerHTML = "";
+
+  if (!state.contentIdeas.length) {
+    const empty = document.createElement("article");
+    empty.className = "idea-card empty";
+    const title = document.createElement("strong");
+    title.textContent = "후보 새로고침을 눌러주세요.";
+    const body = document.createElement("p");
+    body.textContent = "공식 결과에서 접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 찾아드립니다.";
+    empty.append(title, body);
+    els.ideasList.append(empty);
+    els.ideasUpdated.textContent = "공식 결과 기반";
+    return;
+  }
+
+  state.contentIdeas.forEach((idea) => {
+    const card = document.createElement("article");
+    card.className = "idea-card";
+
+    const topLine = document.createElement("div");
+    topLine.className = "idea-topline";
+    const badge = document.createElement("span");
+    badge.className = "idea-badge";
+    badge.textContent = idea.type || "추천";
+    const score = document.createElement("span");
+    score.className = "idea-score";
+    score.textContent = `${idea.score || 0}점`;
+    topLine.append(badge, score);
+
+    const title = document.createElement("h3");
+    title.textContent = idea.title || "콘텐츠 후보";
+
+    const reason = document.createElement("p");
+    reason.textContent = idea.reason || "";
+
+    const meta = document.createElement("div");
+    meta.className = "idea-meta";
+    [idea.format, idea.eventLabel, ...(idea.chips || [])].filter(Boolean).slice(0, 6).forEach((text) => {
+      const chip = document.createElement("span");
+      chip.className = "idea-chip";
+      chip.textContent = text;
+      meta.append(chip);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "idea-actions";
+    const openButton = document.createElement("button");
+    openButton.className = "idea-open-btn";
+    openButton.type = "button";
+    openButton.dataset.ideaId = idea.id;
+    openButton.textContent = "결과 카드로 열기";
+    actions.append(openButton);
+
+    card.append(topLine, title, reason, meta, actions);
+    els.ideasList.append(card);
+  });
+}
+
+async function loadContentIdeas() {
+  const tournamentId = state.selectedTournament?.id || els.tournamentSelect.value || "miryang-2026";
+  setIdeasBusy(true);
+  setStatus("공식 결과를 분석해 콘텐츠 후보를 찾는 중입니다.");
+  els.rowCount.textContent = "분석중";
+
+  try {
+    const response = await fetch(apiUrl(`/api/content-ideas?tournament_id=${encodeURIComponent(tournamentId)}`));
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || payload.error || "후보 추천 실패");
+
+    state.contentIdeas = payload.ideas || [];
+    els.ideasUpdated.textContent = payload.generatedAt ? `생성 ${new Date(payload.generatedAt).toLocaleString("ko-KR")}` : payload.source || "공식 결과 기반";
+    renderContentIdeas();
+    els.rowCount.textContent = `${state.contentIdeas.length}개`;
+    setStatus(`${payload.tournament?.name || "선택 대회"} 공식 결과에서 콘텐츠 후보 ${state.contentIdeas.length}개를 추천했습니다.`);
+  } catch (error) {
+    console.error(error);
+    state.contentIdeas = [];
+    renderContentIdeas();
+    els.rowCount.textContent = "0개";
+    setStatus(`콘텐츠 후보를 불러오지 못했습니다. ${error.message}`);
+  } finally {
+    setIdeasBusy(false);
+  }
+}
+
+async function openIdeaResult(ideaId) {
+  const idea = state.contentIdeas.find((item) => item.id === ideaId);
+  if (!idea) return;
+
+  const ideaKey = eventParamKey(idea.params || {});
+  const event =
+    state.events.find((item) => item.id === idea.eventId) ||
+    state.events.find((item) => eventParamKey(item.params || {}) === ideaKey);
+
+  if (!event) {
+    setStatus("해당 후보의 결과 종목을 현재 대회 목록에서 찾지 못했습니다.");
+    return;
+  }
+
+  state.selectedEvent = event;
+  setMode("result");
+  els.eventSearch.value = "";
+  renderEventOptions();
+  els.eventSelect.value = event.id;
+  await loadSelectedResult();
 }
 
 function renderSample(message) {
@@ -2273,6 +2413,10 @@ els.scheduleModeBtn.addEventListener("click", () => {
   setMode("schedule");
 });
 
+els.ideasModeBtn.addEventListener("click", () => {
+  setMode("ideas");
+});
+
 els.eventSearch.addEventListener("input", () => {
   renderEventOptions();
 });
@@ -2286,6 +2430,7 @@ els.tournamentSelect.addEventListener("change", () => {
   state.currentPage = 0;
   state.manualTitle = false;
   state.manualSubtitle = false;
+  state.contentIdeas = [];
   loadEvents();
 });
 
@@ -2364,6 +2509,16 @@ els.scheduleCoverInput.addEventListener("change", () => {
 
 els.buildScheduleBtn.addEventListener("click", () => {
   buildScheduleFromInput();
+});
+
+els.refreshIdeasBtn.addEventListener("click", () => {
+  loadContentIdeas();
+});
+
+els.ideasList.addEventListener("click", (event) => {
+  const button = event.target.closest(".idea-open-btn");
+  if (!button) return;
+  openIdeaResult(button.dataset.ideaId);
 });
 
 [els.groupByHeat, els.hideNonFinishers].forEach((input) => {

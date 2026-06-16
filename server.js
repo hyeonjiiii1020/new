@@ -1145,6 +1145,306 @@ async function getPaceResult(searchParams, tournament) {
   return { tournament, meta, rows };
 }
 
+function isContentIdeaEvent(event) {
+  if (String(event.round || "").trim() !== "결승") return false;
+  if (!/(완료|순위)/.test(String(event.status || ""))) return false;
+  if (/\((?:10|7)종\)/.test(String(event.eventName || ""))) return false;
+  return /^(?:100m|200m|400m|800m|1500m|3000m|5000m|10000m|3000mSC|100mH|110mH|400mH|4x|높이뛰기|장대높이뛰기|멀리뛰기|세단뛰기|포환던지기|원반던지기|해머던지기|창던지기|5000mW|10kmW|20kmW|10종경기|7종경기)/.test(String(event.eventName || ""));
+}
+
+function ideaEventPriority(event) {
+  const name = String(event.eventName || "");
+  if (isRelayEventName(name)) return 1;
+  if (/^(100m|200m|400m)$/.test(name)) return 2;
+  if (/H$|3000mSC/.test(name)) return 3;
+  if (/10종경기|7종경기/.test(name)) return 4;
+  if (/높이뛰기|장대높이뛰기|멀리뛰기|세단뛰기/.test(name)) return 5;
+  if (/800m|1500m|3000m|5000m|10000m/.test(name)) return 6;
+  if (/포환|원반|해머|창/.test(name)) return 7;
+  return 8;
+}
+
+function resultNumber(record) {
+  const value = String(record || "").replace(/,/g, "").trim();
+  if (!value) return null;
+  if (value.includes(":")) {
+    const parts = value.split(":").map((part) => Number.parseFloat(part));
+    if (parts.some((part) => Number.isNaN(part))) return null;
+    return parts.reduce((total, part) => total * 60 + part, 0);
+  }
+  const match = value.match(/-?\d+(?:\.\d+)?/);
+  return match ? Number.parseFloat(match[0]) : null;
+}
+
+function recordDifference(rows) {
+  const [first, second] = rows;
+  if (!first || !second) return null;
+  const firstValue = resultNumber(first.record);
+  const secondValue = resultNumber(second.record);
+  if (firstValue === null || secondValue === null) return null;
+  return Math.abs(secondValue - firstValue);
+}
+
+function formatDifference(diff, eventName) {
+  if (diff === null) return "";
+  if (/m$|H$|3000mSC|5000m|10000m|W$|R/.test(eventName)) return `${diff.toFixed(2)}초`;
+  if (/종경기/.test(eventName)) return `${Math.round(diff)}점`;
+  return diff < 1 ? `${diff.toFixed(2)}` : `${diff.toFixed(2)}`;
+}
+
+function closeThreshold(eventName) {
+  if (isRelayEventName(eventName)) return 0.15;
+  if (/^(100m|200m)$/.test(eventName)) return 0.12;
+  if (/^(400m|400mH)$/.test(eventName)) return 0.45;
+  if (/800m|1500m|3000mSC/.test(eventName)) return 3;
+  if (/3000m|5000m|10000m|W/.test(eventName)) return 8;
+  if (/높이뛰기|장대높이뛰기|멀리뛰기|세단뛰기/.test(eventName)) return 0.08;
+  if (/종경기/.test(eventName)) return 200;
+  return 0.2;
+}
+
+function recordMarker(rows) {
+  const markerText = rows
+    .map((row) => `${row.record || ""} ${row.wind || ""} ${row.remark || ""}`)
+    .join(" ");
+  const marker = markerText.match(/한국신|한국기록|대회신|신기록|시즌베스트|개인최고|개인\s?최고|PB|SB|NR|MR|GR|WL/i);
+  return marker ? marker[0] : "";
+}
+
+function ideaParamsFromEvent(event) {
+  return {
+    ...event.params,
+    tournament_id: event.tournament_id
+  };
+}
+
+function ideaRowName(row) {
+  return row.name || row.team || "";
+}
+
+function makeIdea({ event, result, type, title, reason, format, score, chips }) {
+  const rows = result.rows || [];
+  return {
+    id: `${type}-${event.id}`,
+    type,
+    title,
+    reason,
+    format,
+    score,
+    chips: chips.filter(Boolean),
+    eventId: event.id,
+    eventLabel: event.label,
+    params: ideaParamsFromEvent(event),
+    topRows: rows.slice(0, 3).map((row) => ({
+      rank: row.rank,
+      name: row.name || "",
+      team: row.team || "",
+      record: row.record || ""
+    }))
+  };
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = [];
+  let index = 0;
+  async function worker() {
+    while (index < items.length) {
+      const currentIndex = index;
+      index += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return results;
+}
+
+async function getContentIdeas(searchParams) {
+  const tournament = findTournament(searchParams.get("tournament_id") || searchParams.get("to_cd"));
+  const events = (await getEvents(tournament))
+    .filter(isContentIdeaEvent)
+    .sort((a, b) => ideaEventPriority(a) - ideaEventPriority(b) || String(a.label).localeCompare(String(b.label), "ko"))
+    .slice(0, 42);
+
+  const eventResults = await mapWithConcurrency(events, 4, async (event) => {
+    try {
+      const params = new URLSearchParams(event.params);
+      params.set("tournament_id", tournament.id);
+      const result = await getResult(params);
+      const rows = (result.rows || []).filter((row) => {
+        const text = `${row.record || ""} ${row.remark || ""}`.toUpperCase();
+        return row.rank && row.record && !/\b(DNS|DNF)\b|기권|실격/.test(text);
+      });
+      return rows.length ? { event, result: { ...result, rows } } : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const usable = eventResults.filter(Boolean);
+  const winnerMap = new Map();
+  for (const item of usable) {
+    if (isRelayEventName(item.event.eventName)) continue;
+    const winner = item.result.rows[0];
+    const key = `${winner.name || ""}|${winner.team || ""}`;
+    if (!winner.name || (winnerMap.has(key) && winnerMap.get(key).some((eventLabel) => eventLabel === item.event.label))) continue;
+    const list = winnerMap.get(key) || [];
+    list.push(item.event.label);
+    winnerMap.set(key, list);
+  }
+
+  const ideas = [];
+  for (const item of usable) {
+    const { event, result } = item;
+    const rows = result.rows;
+    const top = rows[0];
+    const second = rows[1];
+    const eventName = event.eventName;
+    const diff = recordDifference(rows);
+    const diffText = formatDifference(diff, eventName);
+    const marker = recordMarker(rows);
+    const relay = isRelayEventName(eventName);
+    const youth = /중학교|고등학교/.test(event.division);
+    const sameTeamTop2 = top?.team && second?.team && top.team === second.team;
+    const close = diff !== null && diff <= closeThreshold(eventName);
+    const topName = ideaRowName(top);
+
+    if (marker) {
+      ideas.push(makeIdea({
+        event,
+        result,
+        type: "기록 소식",
+        title: `${topName}, ${eventName} ${marker}`,
+        reason: `결과지 비고/기록에서 ${marker} 표시가 감지됐습니다. 기록형 콘텐츠로 먼저 올리기 좋습니다.`,
+        format: "카드뉴스 1장 + 스토리 공유",
+        score: 98,
+        chips: [marker, event.division, top.record]
+      }));
+    }
+
+    if (close && second) {
+      ideas.push(makeIdea({
+        event,
+        result,
+        type: "접전",
+        title: diff === 0 ? `${eventName} ${event.division}, 같은 기록의 승부` : `${diffText} 차이, ${eventName} 승부`,
+        reason: `${topName}와 ${ideaRowName(second)}의 차이가 ${diffText || "매우 작게"} 났습니다. 댓글 반응을 만들기 좋은 접전 포인트입니다.`,
+        format: relay ? "릴스 후킹 + 결과 카드" : "결과 카드 + 스토리 투표",
+        score: relay ? 92 : 88,
+        chips: [event.division, top.record, second.record]
+      }));
+    }
+
+    if (relay) {
+      ideas.push(makeIdea({
+        event,
+        result,
+        type: "릴레이",
+        title: `${top.team}, ${eventName} 우승`,
+        reason: `${top.name} 조합으로 팀 승부를 보여줄 수 있습니다. 릴레이는 선수 4명을 함께 조명하기 좋아요.`,
+        format: "결과 카드 + 팀명 중심 캡션",
+        score: close ? 86 : 78,
+        chips: [top.team, event.division, top.record]
+      }));
+    }
+
+    if (sameTeamTop2 && !relay) {
+      ideas.push(makeIdea({
+        event,
+        result,
+        type: "팀 장악",
+        title: `${top.team}, ${eventName} 1-2위`,
+        reason: `${top.name}와 ${second.name}가 같은 소속으로 1-2위를 차지했습니다. 팀 스토리로 묶기 좋습니다.`,
+        format: "캐러셀 2장",
+        score: 84,
+        chips: [top.team, top.record, second.record]
+      }));
+    }
+
+    if (youth) {
+      ideas.push(makeIdea({
+        event,
+        result,
+        type: "유망주",
+        title: `${event.division} ${eventName}, ${topName} 우승`,
+        reason: "중고등부 결과는 미래 선수 조명 콘텐츠로 반응이 좋습니다. 종목별 유망주 기록으로 저장 가치가 있습니다.",
+        format: "선수 조명 카드",
+        score: /높이뛰기|100m|200m|400m/.test(eventName) ? 75 : 67,
+        chips: [event.division, top.record]
+      }));
+    }
+
+    if (/3000mSC|W$|10kmW|20kmW|10종경기|7종경기|포환|원반|해머|창/.test(eventName)) {
+      ideas.push(makeIdea({
+        event,
+        result,
+        type: "종목 조명",
+        title: `${eventName}, 오늘의 종목 조명`,
+        reason: "단거리 외 종목은 설명형 카드로 만들면 육상인들이 저장하고 공유하기 좋습니다.",
+        format: "설명형 카드뉴스",
+        score: /3000mSC|10종경기|7종경기/.test(eventName) ? 76 : 65,
+        chips: [event.division, topName, top.record]
+      }));
+    }
+  }
+
+  for (const [key, eventLabels] of winnerMap.entries()) {
+    if (eventLabels.length < 2) continue;
+    const [name, team] = key.split("|");
+    const matching = usable.find((item) => item.result.rows[0]?.name === name && item.result.rows[0]?.team === team);
+    if (!matching) continue;
+    ideas.push(makeIdea({
+      event: matching.event,
+      result: matching.result,
+      type: "다관왕",
+      title: `${name}, ${eventLabels.length}관왕 후보`,
+      reason: `${eventLabels.slice(0, 3).join(", ")}에서 우승했습니다. 대회 주인공 콘텐츠로 묶기 좋습니다.`,
+      format: "캐러셀 표지 + 종목별 결과",
+      score: 95,
+      chips: [team, `${eventLabels.length}관왕`, ...eventLabels.slice(0, 2)]
+    }));
+  }
+
+  const sortedIdeas = ideas.sort((a, b) => b.score - a.score);
+  const deduped = [];
+  const seen = new Set();
+  const typeCounts = new Map();
+  const addIdea = (idea, enforceTypeCap = true) => {
+    const key = `${idea.type}|${idea.eventLabel}|${idea.title}`;
+    if (seen.has(key)) return false;
+    const typeCount = typeCounts.get(idea.type) || 0;
+    if (enforceTypeCap && typeCount >= 3) return false;
+    seen.add(key);
+    typeCounts.set(idea.type, typeCount + 1);
+    deduped.push(idea);
+    return true;
+  };
+
+  for (const type of ["기록 소식", "다관왕", "접전", "릴레이", "팀 장악", "유망주", "종목 조명"]) {
+    const idea = sortedIdeas.find((item) => item.type === type);
+    if (idea) addIdea(idea, false);
+    if (deduped.length >= 12) break;
+  }
+
+  for (const idea of sortedIdeas) {
+    addIdea(idea, true);
+    if (deduped.length >= 12) break;
+  }
+
+  if (deduped.length < 12) {
+    for (const idea of sortedIdeas) {
+      addIdea(idea, false);
+      if (deduped.length >= 12) break;
+    }
+  }
+
+  return {
+    tournament,
+    generatedAt: new Date().toISOString(),
+    source: "공식 경기 결과",
+    ideas: deduped
+  };
+}
+
 async function handleApi(req, res, pathname, searchParams) {
   try {
     if (pathname === "/api/health") {
@@ -1167,6 +1467,11 @@ async function handleApi(req, res, pathname, searchParams) {
     if (pathname === "/api/result") {
       const result = await getResult(searchParams);
       return sendJson(res, 200, result);
+    }
+
+    if (pathname === "/api/content-ideas") {
+      const ideas = await getContentIdeas(searchParams);
+      return sendJson(res, 200, ideas);
     }
 
     return sendJson(res, 404, { error: "API endpoint not found" });
