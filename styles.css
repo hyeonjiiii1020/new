@@ -152,6 +152,29 @@ h1 {
   font-weight: 700;
 }
 
+.idea-source-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.idea-source-tab {
+  min-height: 40px;
+  border: 1px solid #d8e0ea;
+  border-radius: 6px;
+  background: #fff;
+  color: #3b4856;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.idea-source-tab.active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+}
+
 .title-grid {
   margin-top: 18px;
 }
@@ -466,7 +489,8 @@ h1 {
   justify-content: flex-end;
 }
 
-.idea-open-btn {
+.idea-open-btn,
+.idea-link-btn {
   min-height: 34px;
   padding: 0 12px;
   border-radius: 6px;
@@ -474,6 +498,10 @@ h1 {
   color: #fff;
   font-size: 13px;
   font-weight: 900;
+}
+
+.idea-link-btn {
+  background: #0f766e;
 }
 
 .result-card {

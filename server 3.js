@@ -86,6 +86,40 @@ const MIRYANG_EVENT_SPECS = [
 const DEFAULT_TOURNAMENT = TOURNAMENTS[0];
 const eventCache = new Map();
 const resultCache = new Map();
+const issueCache = { generatedAt: 0, payload: null };
+const ISSUE_CACHE_MS = 10 * 60 * 1000;
+const ISSUE_SOURCES = [
+  {
+    id: "world-athletics",
+    name: "World Athletics",
+    group: "공식",
+    url: "https://worldathletics.org/news/rss"
+  },
+  {
+    id: "letsrun",
+    name: "LetsRun",
+    group: "육상 매체",
+    url: "https://www.letsrun.com/feed/"
+  },
+  {
+    id: "athletics-weekly",
+    name: "Athletics Weekly",
+    group: "육상 매체",
+    url: "https://athleticsweekly.com/feed/"
+  },
+  {
+    id: "canadian-running",
+    name: "Canadian Running Magazine",
+    group: "육상 매체",
+    url: "https://runningmagazine.ca/feed/"
+  },
+  {
+    id: "runners-world",
+    name: "Runner's World",
+    group: "러닝 매체",
+    url: "https://www.runnersworld.com/rss/all.xml/"
+  }
+];
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -1445,6 +1479,245 @@ async function getContentIdeas(searchParams) {
   };
 }
 
+function stripCdata(value) {
+  return String(value || "")
+    .replace(/^<!\[CDATA\[/, "")
+    .replace(/\]\]>$/, "")
+    .trim();
+}
+
+function extractRssTag(block, tagName) {
+  const re = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i");
+  const match = String(block || "").match(re);
+  return match ? cleanText(stripCdata(match[1])) : "";
+}
+
+function extractRssLink(block, sourceUrl) {
+  const rssLink = extractRssTag(block, "link");
+  const atomHref = String(block || "").match(/<link\b[^>]*href=["']([^"']+)["'][^>]*>/i)?.[1] || "";
+  const rawLink = rssLink || atomHref || extractRssTag(block, "guid");
+  try {
+    return rawLink ? new URL(decodeEntities(rawLink), sourceUrl).href : "";
+  } catch {
+    return rawLink;
+  }
+}
+
+function parseRssDate(value) {
+  const timestamp = Date.parse(value || "");
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function publishedLabel(timestamp) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function parseRssItems(xml, source) {
+  const blocks = [
+    ...String(xml || "").matchAll(/<item\b[\s\S]*?<\/item>/gi),
+    ...String(xml || "").matchAll(/<entry\b[\s\S]*?<\/entry>/gi)
+  ];
+
+  return blocks.slice(0, 12).map((match, index) => {
+    const block = match[0];
+    const title = extractRssTag(block, "title");
+    const description =
+      extractRssTag(block, "description") ||
+      extractRssTag(block, "summary") ||
+      extractRssTag(block, "content:encoded");
+    const timestamp =
+      parseRssDate(extractRssTag(block, "pubDate")) ||
+      parseRssDate(extractRssTag(block, "published")) ||
+      parseRssDate(extractRssTag(block, "updated"));
+    return {
+      id: `${source.id}-${index}`,
+      title,
+      description,
+      url: extractRssLink(block, source.url),
+      publishedAt: timestamp,
+      source
+    };
+  }).filter((item) => item.title && item.url);
+}
+
+async function fetchExternalText(url, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 Korean Athletics Magazine content scout",
+        "Accept": "application/rss+xml,application/xml,text/xml,text/html,*/*"
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`source responded with ${response.status}`);
+    }
+    return response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function issueKeywordChips(text) {
+  const chips = [];
+  const checks = [
+    ["신기록", /\b(world record|national record|area record|meet record|record-breaking)\b|신기록|한국신|세계신/i],
+    ["시즌베스트", /\bworld lead|season best|sb\b|wl\b/i],
+    ["신발/장비", /\bshoes?|running shoes?|track spikes?|spikes\b|super shoes?|nike|adidas|asics|puma|new balance|hoka|on running|brooks|saucony\b|신발|스파이크|러닝화/i],
+    ["세계육상", /\bworld athletics|diamond league|world championships|continental tour|olympic|paris|tokyo\b|세계육상|다이아몬드리그|올림픽/i],
+    ["마라톤", /\bmarathon|road race|half marathon|10k\b|마라톤/i],
+    ["트랙", /\b100m|200m|400m|800m|1500m|5000m|10000m|hurdles|relay|steeplechase\b|허들|계주/i],
+    ["필드", /\bhigh jump|long jump|pole vault|triple jump|shot put|discus|javelin|hammer\b|높이뛰기|멀리뛰기|장대높이뛰기|투척/i]
+  ];
+  for (const [label, re] of checks) {
+    if (re.test(text)) chips.push(label);
+  }
+  return chips;
+}
+
+function isShoeIssue(text) {
+  return /\bshoes?|running shoes?|track spikes?|spikes\b|super shoes?|nike|adidas|asics|puma|new balance|hoka|on running|brooks|saucony\b|신발|스파이크|러닝화/i.test(text);
+}
+
+function issueType(text, source) {
+  if (isShoeIssue(text)) {
+    return "신발/장비";
+  }
+  if (/\bworld record|national record|area record|meet record|record-breaking|world lead|season best|personal best|pb\b|sb\b|wl\b/i.test(text)) {
+    return "기록 이슈";
+  }
+  if (/\bdiamond league|world championships|continental tour|olympic|championships|meeting|results?\b/i.test(text)) {
+    return "해외 경기";
+  }
+  if (source.id === "world-athletics") {
+    return "세계육상";
+  }
+  return "육상 소식";
+}
+
+function issueScore(item, type, chips) {
+  const now = Date.now();
+  const ageDays = item.publishedAt ? Math.max(0, (now - item.publishedAt) / 86400000) : 30;
+  let score = 45;
+  if (item.source.group === "공식") score += 14;
+  if (item.source.group === "육상 매체") score += 9;
+  if (ageDays <= 1) score += 22;
+  else if (ageDays <= 3) score += 16;
+  else if (ageDays <= 7) score += 10;
+  else if (ageDays <= 14) score += 4;
+  if (type === "기록 이슈") score += 24;
+  if (type === "해외 경기") score += 18;
+  if (type === "신발/장비") score += 16;
+  if (type === "세계육상") score += 12;
+  score += Math.min(12, chips.length * 3);
+  return Math.min(99, score);
+}
+
+function issueFormat(type) {
+  if (type === "신발/장비") return "장비 소개 카드 + 스토리 투표";
+  if (type === "기록 이슈") return "뉴스 카드 + 기록 비교";
+  if (type === "해외 경기") return "릴스 후킹 + 결과 요약";
+  if (type === "세계육상") return "뉴스 카드 + 원문 링크";
+  return "스토리 공유 + 짧은 캡션";
+}
+
+function issueReason(item, type) {
+  const sourceName = item.source.name;
+  if (type === "신발/장비") {
+    return `${sourceName}에 올라온 신발/장비 관련 소식입니다. 육상인들이 댓글로 의견을 남기기 좋아 장비형 콘텐츠 후보로 적합합니다.`;
+  }
+  if (type === "기록 이슈") {
+    return `${sourceName}에서 기록 관련 신호가 감지됐습니다. 기록 비교 카드나 '얼마나 빠른 기록인가' 형식으로 풀기 좋습니다.`;
+  }
+  if (type === "해외 경기") {
+    return `${sourceName}의 해외 경기 소식입니다. 한국육상매거진 팔로워에게 세계 흐름을 짧게 소개하기 좋습니다.`;
+  }
+  if (type === "세계육상") {
+    return `World Athletics 공식 소식입니다. 공식 출처 기반이라 신뢰도 높은 뉴스 카드로 활용하기 좋습니다.`;
+  }
+  return `${sourceName}에 올라온 육상 관련 이슈입니다. 반응을 보며 스토리 또는 짧은 게시물로 확장할 수 있습니다.`;
+}
+
+function makeIssueIdea(item) {
+  const text = `${item.title} ${item.description}`;
+  const chips = issueKeywordChips(text);
+  const type = issueType(text, item.source);
+  return {
+    id: item.id,
+    type,
+    title: item.title,
+    reason: issueReason(item, type),
+    format: issueFormat(type),
+    score: issueScore(item, type, chips),
+    chips: [item.source.group, ...chips].filter(Boolean),
+    sourceName: item.source.name,
+    publishedAt: item.publishedAt ? new Date(item.publishedAt).toISOString() : "",
+    publishedLabel: publishedLabel(item.publishedAt),
+    url: item.url
+  };
+}
+
+async function getIssueIdeas() {
+  if (issueCache.payload && Date.now() - issueCache.generatedAt < ISSUE_CACHE_MS) {
+    return {
+      ...issueCache.payload,
+      cached: true
+    };
+  }
+
+  const sourceResults = await mapWithConcurrency(ISSUE_SOURCES, 3, async (source) => {
+    try {
+      const xml = await fetchExternalText(source.url);
+      return {
+        source,
+        items: parseRssItems(xml, source),
+        error: ""
+      };
+    } catch (error) {
+      return {
+        source,
+        items: [],
+        error: error.message
+      };
+    }
+  });
+
+  const rawItems = sourceResults.flatMap((result) => result.items);
+  const seen = new Set();
+  const ideas = rawItems
+    .map(makeIssueIdea)
+    .filter((idea) => {
+      const key = `${idea.url || ""}|${cleanText(idea.title).toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.score - a.score || String(b.publishedAt).localeCompare(String(a.publishedAt)))
+    .slice(0, 12);
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    source: "공식/육상 매체 RSS",
+    sources: sourceResults.map((result) => ({
+      id: result.source.id,
+      name: result.source.name,
+      group: result.source.group,
+      count: result.items.length,
+      error: result.error
+    })),
+    sourcesUsed: sourceResults.filter((result) => result.items.length).length,
+    ideas
+  };
+
+  issueCache.generatedAt = Date.now();
+  issueCache.payload = payload;
+  return payload;
+}
+
 async function handleApi(req, res, pathname, searchParams) {
   try {
     if (pathname === "/api/health") {
@@ -1471,6 +1744,11 @@ async function handleApi(req, res, pathname, searchParams) {
 
     if (pathname === "/api/content-ideas") {
       const ideas = await getContentIdeas(searchParams);
+      return sendJson(res, 200, ideas);
+    }
+
+    if (pathname === "/api/issue-ideas") {
+      const ideas = await getIssueIdeas();
       return sendJson(res, 200, ideas);
     }
 

@@ -131,11 +131,16 @@
         </div>
 
         <div id="ideasControls" class="mode-panel hidden">
-          <div class="idea-intro">
-            <strong>공식 결과 기반 추천</strong>
-            <span>접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 자동으로 찾습니다.</span>
+          <div class="idea-source-tabs" aria-label="콘텐츠 후보 종류">
+            <button id="resultIdeasBtn" class="idea-source-tab active" type="button">대회 결과 후보</button>
+            <button id="issueIdeasBtn" class="idea-source-tab" type="button">육상 이슈 추천</button>
           </div>
-          <button id="refreshIdeasBtn" class="primary wide-button" type="button">후보 새로고침</button>
+          <div class="idea-intro">
+            <strong id="ideaIntroTitle">공식 결과 기반 추천</strong>
+            <span id="ideaIntroCopy">접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 자동으로 찾습니다.</span>
+          </div>
+          <button id="refreshIdeasBtn" class="primary wide-button" type="button">대회 후보 새로고침</button>
+          <button id="refreshIssueIdeasBtn" class="primary wide-button hidden" type="button">이슈 추천 새로고침</button>
         </div>
 
         <div class="status-row">

@@ -11,6 +11,8 @@ const state = {
   events: [],
   filteredEvents: [],
   contentIdeas: [],
+  issueIdeas: [],
+  ideaSource: "results",
   selectedEvent: null,
   result: null,
   pages: [],
@@ -72,6 +74,11 @@ const els = {
   ideasList: $("#ideasList"),
   ideasUpdated: $("#ideasUpdated"),
   refreshIdeasBtn: $("#refreshIdeasBtn"),
+  refreshIssueIdeasBtn: $("#refreshIssueIdeasBtn"),
+  resultIdeasBtn: $("#resultIdeasBtn"),
+  issueIdeasBtn: $("#issueIdeasBtn"),
+  ideaIntroTitle: $("#ideaIntroTitle"),
+  ideaIntroCopy: $("#ideaIntroCopy"),
   canvasToolbar: $(".canvas-toolbar")
 };
 
@@ -333,8 +340,13 @@ function setMode(mode) {
     renderScheduleCard();
   } else {
     renderContentIdeas();
-    els.rowCount.textContent = `${state.contentIdeas.length}개`;
-    setStatus("공식 결과를 분석해 콘텐츠 후보를 추천합니다.");
+    const activeIdeas = getActiveIdeas();
+    els.rowCount.textContent = `${activeIdeas.length}개`;
+    setStatus(
+      state.ideaSource === "issues"
+        ? "공식/육상 매체 소스를 검색해 콘텐츠 이슈를 추천합니다."
+        : "공식 결과를 분석해 콘텐츠 후보를 추천합니다."
+    );
   }
 }
 
@@ -515,6 +527,30 @@ async function loadSelectedResult() {
 
 function setIdeasBusy(isBusy) {
   els.refreshIdeasBtn.disabled = isBusy;
+  els.refreshIssueIdeasBtn.disabled = isBusy;
+}
+
+function setIdeaSource(source) {
+  state.ideaSource = source;
+  els.resultIdeasBtn.classList.toggle("active", source === "results");
+  els.issueIdeasBtn.classList.toggle("active", source === "issues");
+  els.refreshIdeasBtn.classList.toggle("hidden", source !== "results");
+  els.refreshIssueIdeasBtn.classList.toggle("hidden", source !== "issues");
+
+  if (source === "issues") {
+    els.ideaIntroTitle.textContent = "육상 이슈 추천";
+    els.ideaIntroCopy.textContent = "세계육상 공식 소식, 해외 육상 매체, 신발·장비 출시, 기록 이슈를 찾아 추천합니다.";
+  } else {
+    els.ideaIntroTitle.textContent = "공식 결과 기반 추천";
+    els.ideaIntroCopy.textContent = "접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 자동으로 찾습니다.";
+  }
+
+  renderContentIdeas();
+  els.rowCount.textContent = `${getActiveIdeas().length}개`;
+}
+
+function getActiveIdeas() {
+  return state.ideaSource === "issues" ? state.issueIdeas : state.contentIdeas;
 }
 
 function eventParamKey(params = {}) {
@@ -531,21 +567,25 @@ function eventParamKey(params = {}) {
 
 function renderContentIdeas() {
   els.ideasList.innerHTML = "";
+  const ideas = getActiveIdeas();
+  const isIssueMode = state.ideaSource === "issues";
 
-  if (!state.contentIdeas.length) {
+  if (!ideas.length) {
     const empty = document.createElement("article");
     empty.className = "idea-card empty";
     const title = document.createElement("strong");
-    title.textContent = "후보 새로고침을 눌러주세요.";
+    title.textContent = isIssueMode ? "이슈 추천 새로고침을 눌러주세요." : "후보 새로고침을 눌러주세요.";
     const body = document.createElement("p");
-    body.textContent = "공식 결과에서 접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 찾아드립니다.";
+    body.textContent = isIssueMode
+      ? "세계육상 공식 소식과 육상 매체 RSS에서 인스타그램에 올릴 만한 이슈를 찾아드립니다."
+      : "공식 결과에서 접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 찾아드립니다.";
     empty.append(title, body);
     els.ideasList.append(empty);
-    els.ideasUpdated.textContent = "공식 결과 기반";
+    els.ideasUpdated.textContent = isIssueMode ? "외부 소스 기반" : "공식 결과 기반";
     return;
   }
 
-  state.contentIdeas.forEach((idea) => {
+  ideas.forEach((idea) => {
     const card = document.createElement("article");
     card.className = "idea-card";
 
@@ -567,7 +607,12 @@ function renderContentIdeas() {
 
     const meta = document.createElement("div");
     meta.className = "idea-meta";
-    [idea.format, idea.eventLabel, ...(idea.chips || [])].filter(Boolean).slice(0, 6).forEach((text) => {
+    [
+      idea.format,
+      idea.eventLabel || idea.sourceName,
+      idea.publishedLabel,
+      ...(idea.chips || [])
+    ].filter(Boolean).slice(0, 7).forEach((text) => {
       const chip = document.createElement("span");
       chip.className = "idea-chip";
       chip.textContent = text;
@@ -576,12 +621,21 @@ function renderContentIdeas() {
 
     const actions = document.createElement("div");
     actions.className = "idea-actions";
-    const openButton = document.createElement("button");
-    openButton.className = "idea-open-btn";
-    openButton.type = "button";
-    openButton.dataset.ideaId = idea.id;
-    openButton.textContent = "결과 카드로 열기";
-    actions.append(openButton);
+    if (idea.url) {
+      const linkButton = document.createElement("button");
+      linkButton.className = "idea-link-btn";
+      linkButton.type = "button";
+      linkButton.dataset.url = idea.url;
+      linkButton.textContent = "원문 보기";
+      actions.append(linkButton);
+    } else {
+      const openButton = document.createElement("button");
+      openButton.className = "idea-open-btn";
+      openButton.type = "button";
+      openButton.dataset.ideaId = idea.id;
+      openButton.textContent = "결과 카드로 열기";
+      actions.append(openButton);
+    }
 
     card.append(topLine, title, reason, meta, actions);
     els.ideasList.append(card);
@@ -589,6 +643,8 @@ function renderContentIdeas() {
 }
 
 async function loadContentIdeas() {
+  state.ideaSource = "results";
+  setIdeaSource("results");
   const tournamentId = state.selectedTournament?.id || els.tournamentSelect.value || "miryang-2026";
   setIdeasBusy(true);
   setStatus("공식 결과를 분석해 콘텐츠 후보를 찾는 중입니다.");
@@ -610,6 +666,34 @@ async function loadContentIdeas() {
     renderContentIdeas();
     els.rowCount.textContent = "0개";
     setStatus(`콘텐츠 후보를 불러오지 못했습니다. ${error.message}`);
+  } finally {
+    setIdeasBusy(false);
+  }
+}
+
+async function loadIssueIdeas() {
+  state.ideaSource = "issues";
+  setIdeaSource("issues");
+  setIdeasBusy(true);
+  setStatus("공식/육상 매체 소스를 검색해 이슈 후보를 찾는 중입니다.");
+  els.rowCount.textContent = "검색중";
+
+  try {
+    const response = await fetch(apiUrl("/api/issue-ideas"));
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || payload.error || "이슈 추천 실패");
+
+    state.issueIdeas = payload.ideas || [];
+    els.ideasUpdated.textContent = payload.generatedAt ? `생성 ${new Date(payload.generatedAt).toLocaleString("ko-KR")}` : payload.source || "외부 소스 기반";
+    renderContentIdeas();
+    els.rowCount.textContent = `${state.issueIdeas.length}개`;
+    setStatus(`공식/육상 매체 ${payload.sourcesUsed || 0}곳에서 이슈 후보 ${state.issueIdeas.length}개를 추천했습니다.`);
+  } catch (error) {
+    console.error(error);
+    state.issueIdeas = [];
+    renderContentIdeas();
+    els.rowCount.textContent = "0개";
+    setStatus(`육상 이슈 추천을 불러오지 못했습니다. ${error.message}`);
   } finally {
     setIdeasBusy(false);
   }
@@ -2431,6 +2515,7 @@ els.tournamentSelect.addEventListener("change", () => {
   state.manualTitle = false;
   state.manualSubtitle = false;
   state.contentIdeas = [];
+  state.issueIdeas = [];
   loadEvents();
 });
 
@@ -2515,7 +2600,27 @@ els.refreshIdeasBtn.addEventListener("click", () => {
   loadContentIdeas();
 });
 
+els.refreshIssueIdeasBtn.addEventListener("click", () => {
+  loadIssueIdeas();
+});
+
+els.resultIdeasBtn.addEventListener("click", () => {
+  setIdeaSource("results");
+  setStatus("공식 결과를 분석해 콘텐츠 후보를 추천합니다.");
+});
+
+els.issueIdeasBtn.addEventListener("click", () => {
+  setIdeaSource("issues");
+  setStatus("공식/육상 매체 소스를 검색해 콘텐츠 이슈를 추천합니다.");
+});
+
 els.ideasList.addEventListener("click", (event) => {
+  const linkButton = event.target.closest(".idea-link-btn");
+  if (linkButton?.dataset.url) {
+    window.open(linkButton.dataset.url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
   const button = event.target.closest(".idea-open-btn");
   if (!button) return;
   openIdeaResult(button.dataset.ideaId);
