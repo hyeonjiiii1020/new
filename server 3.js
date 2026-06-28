@@ -24,6 +24,19 @@ const TOURNAMENTS = [
     }
   },
   {
+    id: "ktfl-president-cup-2026",
+    name: "제2회 한국실업육상연맹회장배 전국실업육상경기대회",
+    period: "2026-06-29 ~ 2026-07-01",
+    place: "서천군",
+    source: "pace",
+    comp_id: "56",
+    divisionMap: {
+      M: "남자실업부",
+      F: "여자실업부",
+      X: "실업부"
+    }
+  },
+  {
     id: "miryang-2026",
     name: "2026 밀양아리랑 전국육상경기대회",
     period: "2026-06-05 ~ 2026-06-09",
@@ -589,7 +602,7 @@ function formatPaceMeasure(value) {
 
 function paceHeatLabel(heat, heatCount, event) {
   if (!heat || heatCount <= 1) return "";
-  if (event?.round_type === "final") return `${heat.heat_number || ""}조`.trim();
+  if (event?.round_type === "final") return "";
   return heat.heat_name || `${heat.heat_number || ""}조`.trim();
 }
 
