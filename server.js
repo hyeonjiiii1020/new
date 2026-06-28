@@ -132,7 +132,7 @@ const MIME = {
   ".svg": "image/svg+xml"
 };
 
-const ROOT_STATIC_FILES = new Set(["/index.html", "/styles.css", "/app.js"]);
+const ROOT_STATIC_FILES = new Set(["/index.html", "/styles.css", "/app.js", "/schedule-automation.js"]);
 
 function send(res, status, body, contentType = "application/json; charset=utf-8") {
   res.writeHead(status, {

@@ -102,6 +102,20 @@
             </label>
 
             <label class="field wide">
+              <span>AI 추출 초안(JSON)</span>
+              <textarea id="scheduleDraftInput" rows="8" placeholder='{"day":"제1일 경기","date":"2026. 6. 29.(월)","track":[{"time":"08:00","event":"10,000m","division":"실업(남)","round":"결승1조(A,B)"}],"field":[{"time":"11:30","event":"높이뛰기","division":"실업(여)","round":"7종(2)"}]}'></textarea>
+            </label>
+
+            <div class="draft-actions wide">
+              <button id="reviewScheduleDraftBtn" class="secondary" type="button">초안 검토</button>
+              <button id="applyScheduleDraftBtn" class="primary" type="button">확인 후 표 카드로 반영</button>
+            </div>
+
+            <div id="scheduleDraftReview" class="draft-review wide" aria-live="polite">
+              AI가 읽은 초안을 붙여넣고 검토해주세요.
+            </div>
+
+            <label class="field wide">
               <span>일차</span>
               <input id="scheduleDayInput" type="text" placeholder="제2일 경기">
             </label>
@@ -203,7 +217,7 @@
       </section>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="app.js"></script>
+    <script src="schedule-automation.js"></script>
   </body>
 </html>
