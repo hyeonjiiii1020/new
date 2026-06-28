@@ -11,6 +11,19 @@ const PACE_ORIGIN = "https://pace-rise-node.com";
 
 const TOURNAMENTS = [
   {
+    id: "kuaf-university-2026",
+    name: "제5회 전국대학육상경기대회",
+    period: "2026-06-29 ~ 2026-07-01",
+    place: "서천군",
+    source: "pace",
+    comp_id: "55",
+    divisionMap: {
+      M: "남자대학부",
+      F: "여자대학부",
+      X: "대학부"
+    }
+  },
+  {
     id: "miryang-2026",
     name: "2026 밀양아리랑 전국육상경기대회",
     period: "2026-06-05 ~ 2026-06-09",
@@ -473,7 +486,23 @@ function parseResultPage(html, tournament) {
   return { tournament, meta, rows };
 }
 
-function paceGenderDivision(gender) {
+function cleanPaceDivision(value) {
+  return String(value || "")
+    .split(/\d{1,2}\s*시/)[0]
+    .replace(/\s+/g, " ")
+    .replace(/남자\s*/g, "남자")
+    .replace(/여자\s*/g, "여자")
+    .replace(/대학\s*부/g, "대학부")
+    .replace(/실업\s*부/g, "실업부")
+    .trim();
+}
+
+function paceGenderDivision(eventOrGender, tournament = {}) {
+  const event = typeof eventOrGender === "object" && eventOrGender ? eventOrGender : null;
+  const gender = event ? event.gender : eventOrGender;
+  const explicit = cleanPaceDivision(event?.division) || cleanPaceDivision(event?.callroom_event_memo);
+  if (explicit) return explicit;
+  if (tournament.divisionMap?.[gender]) return tournament.divisionMap[gender];
   return {
     M: "남자실업부",
     F: "여자실업부",
@@ -510,7 +539,7 @@ function parsePaceEventList(events, tournament) {
       );
     })
     .map((event) => {
-      const division = paceGenderDivision(event.gender);
+      const division = paceGenderDivision(event, tournament);
       const round = paceRoundLabel(event.round_type);
       return {
         id: `pace-${tournament.comp_id}-${event.id}`,
@@ -589,6 +618,7 @@ function rankPaceRows(rows, higherBetter = false) {
 function parsePaceTrackRows(data) {
   const rows = [];
   const heatCount = data.heats?.length || 0;
+  const shouldRankOverall = data.event?.round_type === "final" || heatCount <= 1;
 
   for (const heat of data.heats || []) {
     const heatRows = [];
@@ -610,15 +640,16 @@ function parsePaceTrackRows(data) {
         sortValue: Number(time)
       });
     }
-    rows.push(...rankPaceRows(heatRows));
+    rows.push(...(shouldRankOverall ? heatRows : rankPaceRows(heatRows)));
   }
 
-  return rows;
+  return shouldRankOverall ? rankPaceRows(rows) : rows;
 }
 
 function parsePaceFieldDistanceRows(data) {
   const rows = [];
   const heatCount = data.heats?.length || 0;
+  const shouldRankOverall = data.event?.round_type === "final" || heatCount <= 1;
 
   for (const heat of data.heats || []) {
     const heatRows = [];
@@ -658,24 +689,54 @@ function parsePaceFieldDistanceRows(data) {
       return 0;
     });
 
-    let previousKey = "";
-    let previousRank = 0;
-    heatRows.forEach((row, index) => {
-      const key = row.tiebreakValues.join("|");
-      const rank = key === previousKey ? previousRank : index + 1;
-      previousKey = key;
-      previousRank = rank;
-      const { tiebreakValues, ...cleanRow } = row;
-      rows.push({ ...cleanRow, rank: String(rank) });
-    });
+    if (shouldRankOverall) {
+      rows.push(...heatRows);
+    } else {
+      let previousKey = "";
+      let previousRank = 0;
+      heatRows.forEach((row, index) => {
+        const key = row.tiebreakValues.join("|");
+        const rank = key === previousKey ? previousRank : index + 1;
+        previousKey = key;
+        previousRank = rank;
+        const { tiebreakValues, ...cleanRow } = row;
+        rows.push({ ...cleanRow, rank: String(rank) });
+      });
+    }
   }
 
-  return rows.map(({ sortValue, ...row }) => row);
+  const rankedRows = shouldRankOverall
+    ? (() => {
+        let previousKey = "";
+        let previousRank = 0;
+        return rows
+          .sort((a, b) => {
+            if (b.sortValue !== a.sortValue) return b.sortValue - a.sortValue;
+            const length = Math.max(a.tiebreakValues.length, b.tiebreakValues.length);
+            for (let index = 1; index < length; index += 1) {
+              const aValue = a.tiebreakValues[index] || -1;
+              const bValue = b.tiebreakValues[index] || -1;
+              if (bValue !== aValue) return bValue - aValue;
+            }
+            return 0;
+          })
+          .map((row, index) => {
+            const key = row.tiebreakValues.join("|");
+            const rank = key === previousKey ? previousRank : index + 1;
+            previousKey = key;
+            previousRank = rank;
+            return { ...row, rank: String(rank) };
+          });
+      })()
+    : rows;
+
+  return rankedRows.map(({ sortValue, tiebreakValues, ...row }) => row);
 }
 
 function parsePaceFieldHeightRows(data) {
   const rows = [];
   const heatCount = data.heats?.length || 0;
+  const shouldRankOverall = data.event?.round_type === "final" || heatCount <= 1;
 
   for (const heat of data.heats || []) {
     const attempts = heat.height_attempts || [];
@@ -720,19 +781,40 @@ function parsePaceFieldHeightRows(data) {
       return a.totalFails - b.totalFails;
     });
 
-    let previousKey = "";
-    let previousRank = 0;
-    heatRows.forEach((row, index) => {
+    if (shouldRankOverall) {
+      rows.push(...heatRows);
+    } else {
+      let previousKey = "";
+      let previousRank = 0;
+      heatRows.forEach((row, index) => {
+        const key = `${row.sortValue}|${row.failsAtBest}|${row.totalFails}`;
+        const rank = key === previousKey ? previousRank : index + 1;
+        previousKey = key;
+        previousRank = rank;
+        const { sortValue, failsAtBest, totalFails, ...cleanRow } = row;
+        rows.push({ ...cleanRow, rank: String(rank) });
+      });
+    }
+  }
+
+  if (!shouldRankOverall) return rows;
+
+  let previousKey = "";
+  let previousRank = 0;
+  return rows
+    .sort((a, b) => {
+      if (b.sortValue !== a.sortValue) return b.sortValue - a.sortValue;
+      if (a.failsAtBest !== b.failsAtBest) return a.failsAtBest - b.failsAtBest;
+      return a.totalFails - b.totalFails;
+    })
+    .map((row, index) => {
       const key = `${row.sortValue}|${row.failsAtBest}|${row.totalFails}`;
       const rank = key === previousKey ? previousRank : index + 1;
       previousKey = key;
       previousRank = rank;
       const { sortValue, failsAtBest, totalFails, ...cleanRow } = row;
-      rows.push({ ...cleanRow, rank: String(rank) });
+      return { ...cleanRow, rank: String(rank) };
     });
-  }
-
-  return rows;
 }
 
 const PACE_WA_TABLES = {
@@ -1170,7 +1252,7 @@ async function getPaceResult(searchParams, tournament) {
     period: tournament.period,
     place: tournament.place,
     eventName: event.name || "",
-    division: paceGenderDivision(event.gender),
+    division: paceGenderDivision(event, tournament),
     round: paceRoundLabel(event.round_type),
     date: tournament.period,
     fetchedAt: new Date().toISOString()
