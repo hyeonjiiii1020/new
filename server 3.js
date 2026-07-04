@@ -47,6 +47,18 @@ const TOURNAMENTS = [
     domestic: "0",
     resultType: "TRM",
     tabs_id: "toKor"
+  },
+  {
+    id: "baekje-iksan-2026",
+    name: "백제왕도 익산 2026 전국육상경기대회",
+    period: "2026-07-04 ~ 2026-07-08",
+    place: "익산",
+    reg_year: "2026",
+    to_cd: "E016200031",
+    gubun: "E",
+    domestic: "0",
+    resultType: "TRM",
+    tabs_id: "toKor"
   }
 ];
 
