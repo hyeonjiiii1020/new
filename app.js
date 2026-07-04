@@ -1917,10 +1917,10 @@ function renderDesignedScheduleCanvas(page) {
   const tableBottom = CARD_HEIGHT - 64;
   const gutter = 0;
   const halfW = tableW / 2;
-  const leftCount = rows.length > 28 ? Math.min(14, Math.ceil(rows.length * 0.42)) : Math.ceil(rows.length / 2);
+  const leftCount = Math.ceil(rows.length / 2);
   const leftRows = rows.slice(0, leftCount);
   const rightRows = rows.slice(leftCount);
-  const maxRows = Math.max(leftRows.length, rightRows.length, rows.length > 28 ? rightRows.length : 14, 1);
+  const maxRows = Math.max(leftRows.length, rightRows.length, 14, 1);
   const headerH = 50;
   const rowH = Math.max(31, Math.min(48, Math.floor((tableBottom - tableY - headerH) / maxRows)));
   const usedH = headerH + maxRows * rowH;
