@@ -328,6 +328,31 @@ function inferDayFromJsonPath(jsonPath, index, total) {
   return total > 1 ? `제${index + 1}일 경기` : "";
 }
 
+function inferDayFromText(value) {
+  const text = String(value || "").normalize("NFC").replace(/\s+/g, " ").trim();
+  const match =
+    text.match(/제\s*(\d{1,2})\s*일\s*경기/) ||
+    text.match(/제\s*(\d{1,2})\s*일차/) ||
+    text.match(/(^|[^0-9])(\d{1,2})\s*일차/);
+  if (!match) return "";
+  const dayNumber = Number(match[2] || match[1]);
+  return Number.isFinite(dayNumber) && dayNumber > 0 ? `제${dayNumber}일 경기` : "";
+}
+
+function inferDayFromDraft(draft, jsonPath, index, total) {
+  return (
+    inferDayFromText(draft?.title) ||
+    inferDayFromText(draft?.day) ||
+    String(draft?.day || "").trim() ||
+    inferDayFromJsonPath(jsonPath, index, total)
+  );
+}
+
+function draftTitleForInput(draft) {
+  const title = String(draft?.meetName || draft?.title || "").trim();
+  return inferDayFromText(title) ? String(draft?.meetName || "").trim() : title;
+}
+
 function rowToScheduleInput(row) {
   return [row.time, row.eventName, row.division, row.round]
     .map((value) => String(value || "").replace(/\s+/g, " ").trim())
@@ -768,8 +793,8 @@ async function main() {
         const draftArgs = {
           ...args,
           cover: args.cover && index === 0,
-          title: args.title || draft.title,
-          day: args.day || draft.day || inferDayFromJsonPath(args.json, index, drafts.length),
+          title: args.title || draftTitleForInput(draft),
+          day: args.day || inferDayFromDraft(draft, args.json, index, drafts.length),
           date: args.date || draft.date,
         };
         await buildFromJson(page, draft, draftArgs);
@@ -794,8 +819,8 @@ async function main() {
           const draftArgs = {
             ...args,
             cover: args.cover && index === 0,
-            title: args.title || draft.title,
-            day: args.day || draft.day || inferDayFromJsonPath("", index, ocr.drafts.length),
+            title: args.title || draftTitleForInput(draft),
+            day: args.day || inferDayFromDraft(draft, "", index, ocr.drafts.length),
             date: args.date || draft.date,
           };
           await buildFromJson(page, draft, draftArgs);

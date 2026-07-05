@@ -19,6 +19,21 @@
       .trim();
   }
 
+  function inferDayFromText(value) {
+    const text = cleanText(value);
+    const match =
+      text.match(/제\s*(\d{1,2})\s*일\s*경기/) ||
+      text.match(/제\s*(\d{1,2})\s*일차/) ||
+      text.match(/(^|[^0-9])(\d{1,2})\s*일차/);
+    if (!match) return "";
+    const dayNumber = Number(match[2] || match[1]);
+    return Number.isFinite(dayNumber) && dayNumber > 0 ? `제${dayNumber}일 경기` : "";
+  }
+
+  function isDayTitle(value) {
+    return Boolean(inferDayFromText(value));
+  }
+
   function arrayFrom(value) {
     return Array.isArray(value) ? value : [];
   }
@@ -120,9 +135,12 @@
 
     const trackRows = normalizeRows(parsed.track || parsed.tracks || [], "트랙경기");
     const fieldRows = normalizeRows(parsed.field || parsed.fields || [], "필드경기");
+    const title = cleanText(parsed.title);
+    const parsedDay = cleanText(parsed.day);
+    const inferredDay = inferDayFromText(title) || inferDayFromText(parsedDay);
     const draft = {
-      title: cleanText(parsed.title),
-      day: cleanText(parsed.day),
+      title,
+      day: inferredDay || parsedDay,
       date: cleanText(parsed.date),
       track: trackRows.valid,
       field: fieldRows.valid,
@@ -204,7 +222,7 @@
     const mode = document.getElementById("scheduleSourceMode");
     if (mode) mode.value = "table";
 
-    if (result.draft.title && !/경기\s*시간표|경기시간표/.test(result.draft.title)) {
+    if (result.draft.title && !isDayTitle(result.draft.title) && !/경기\s*시간표|경기시간표/.test(result.draft.title)) {
       setValue("scheduleTitleInput", result.draft.title);
     }
     setValue("scheduleDayInput", result.draft.day);

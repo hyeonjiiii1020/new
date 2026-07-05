@@ -60,6 +60,7 @@ const els = {
   cardRows: $("#cardRows"),
   cardPreview: $("#cardPreview"),
   scheduleTitleInput: $("#scheduleTitleInput"),
+  scheduleDraftInput: $("#scheduleDraftInput"),
   scheduleSourceMode: $("#scheduleSourceMode"),
   schedulePhotoInput: $("#schedulePhotoInput"),
   scheduleDayInput: $("#scheduleDayInput"),
@@ -1433,9 +1434,22 @@ function rowsFromScheduleInputs() {
   return { trackRows, fieldRows, rows: [...trackRows, ...fieldRows] };
 }
 
+function inferScheduleDayFromText(value) {
+  const text = normalize(value);
+  const match =
+    text.match(/제\s*(\d{1,2})\s*일\s*경기/) ||
+    text.match(/제\s*(\d{1,2})\s*일차/) ||
+    text.match(/(^|[^0-9])(\d{1,2})\s*일차/);
+  if (!match) return "";
+  const dayNumber = Number(match[2] || match[1]);
+  return Number.isFinite(dayNumber) && dayNumber > 0 ? `제${dayNumber}일 경기` : "";
+}
+
 function currentScheduleMeta() {
+  const explicitDay = normalize(els.scheduleDayInput.value);
+  const inferredDay = inferScheduleDayFromText(els.scheduleTitleInput.value);
   return {
-    day: normalize(els.scheduleDayInput.value),
+    day: explicitDay || inferredDay,
     date: normalize(els.scheduleDateInput.value)
   };
 }
