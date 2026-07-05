@@ -1396,8 +1396,9 @@ function parseScheduleText(value) {
 
 function buildSchedulePagesFromRows(rows) {
   const pages = [];
+  const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover" });
+    pages.push({ type: "cover", ...meta });
   }
 
   const orderedSections = [...new Set(rows.map((row) => row.section))];
@@ -1410,6 +1411,7 @@ function buildSchedulePagesFromRows(rows) {
         section,
         part: Math.floor(index / SCHEDULE_ROWS_PER_PAGE) + 1,
         total,
+        ...meta,
         rows: sectionRows.slice(index, index + SCHEDULE_ROWS_PER_PAGE)
       });
     }
@@ -1431,18 +1433,26 @@ function rowsFromScheduleInputs() {
   return { trackRows, fieldRows, rows: [...trackRows, ...fieldRows] };
 }
 
+function currentScheduleMeta() {
+  return {
+    day: normalize(els.scheduleDayInput.value),
+    date: normalize(els.scheduleDateInput.value)
+  };
+}
+
 function buildDesignedSchedulePages() {
   const { trackRows, fieldRows, rows } = rowsFromScheduleInputs();
   const pages = [];
+  const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover" });
+    pages.push({ type: "cover", ...meta });
   }
 
   if (trackRows.length) {
-    pages.push({ type: "scheduleDesigned", section: "트랙경기", rows: trackRows });
+    pages.push({ type: "scheduleDesigned", section: "트랙경기", ...meta, rows: trackRows });
   }
   if (fieldRows.length) {
-    pages.push({ type: "scheduleDesigned", section: "필드경기", rows: fieldRows });
+    pages.push({ type: "scheduleDesigned", section: "필드경기", ...meta, rows: fieldRows });
   }
 
   return { pages, rows };
@@ -1450,8 +1460,9 @@ function buildDesignedSchedulePages() {
 
 function buildSchedulePagesFromPhotos(images) {
   const pages = [];
+  const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover" });
+    pages.push({ type: "cover", ...meta });
   }
 
   images.forEach((image, index) => {
@@ -1461,6 +1472,7 @@ function buildSchedulePagesFromPhotos(images) {
       canvas: image.canvas,
       fileName: image.fileName,
       imageIndex: index + 1,
+      ...meta,
       section: image.section || fallback
     });
   });
@@ -1470,8 +1482,9 @@ function buildSchedulePagesFromPhotos(images) {
 
 function buildSchedulePagesFromCanvas(sourceCanvas) {
   const pages = [];
+  const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover" });
+    pages.push({ type: "cover", ...meta });
   }
 
   const sourceWidth = sourceCanvas.width;
@@ -1485,7 +1498,7 @@ function buildSchedulePagesFromCanvas(sourceCanvas) {
   while (y < sourceHeight) {
     const remaining = sourceHeight - y;
     if (remaining <= maxSliceHeight) {
-      pages.push({ type: "schedule", y, height: remaining });
+      pages.push({ type: "schedule", ...meta, y, height: remaining });
       break;
     }
 
@@ -1497,7 +1510,7 @@ function buildSchedulePagesFromCanvas(sourceCanvas) {
       cut = target;
     }
 
-    pages.push({ type: "schedule", y, height: cut - y });
+    pages.push({ type: "schedule", ...meta, y, height: cut - y });
     y = cut;
   }
 
@@ -1506,8 +1519,9 @@ function buildSchedulePagesFromCanvas(sourceCanvas) {
 
 function buildSchedulePagesFromImages(images) {
   const pages = [];
+  const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover" });
+    pages.push({ type: "cover", ...meta });
   }
 
   images.forEach((image, index) => {
@@ -1516,6 +1530,7 @@ function buildSchedulePagesFromImages(images) {
       canvas: image.canvas,
       fileName: image.fileName,
       imageIndex: index + 1,
+      ...meta,
       section: image.section || SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`
     });
   });
@@ -1750,8 +1765,8 @@ function drawScheduleWaves(ctx) {
 }
 
 function drawDesignedScheduleHeader(ctx, page) {
-  const day = normalize(els.scheduleDayInput.value) || "제2일 경기";
-  const date = normalize(els.scheduleDateInput.value) || "2026. 6. 6(토)";
+  const day = normalize(page?.day) || normalize(els.scheduleDayInput.value) || "일차 확인";
+  const date = normalize(page?.date) || normalize(els.scheduleDateInput.value) || "날짜 확인";
   const navy = "#06285d";
 
   drawScheduleWaves(ctx);
