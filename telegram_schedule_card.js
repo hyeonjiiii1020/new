@@ -406,15 +406,31 @@ function normalizeOcrTime(value) {
   return `${String(numericHour).padStart(2, "0")}:${String(numericMinute).padStart(2, "0")}`;
 }
 
+function looksLikeOcrTimeToken(value) {
+  const text = normalizeOcrText(value);
+  if (/[+\-]/.test(text)) return false;
+  const loose = text
+    .replace(/[Oo]/g, "0")
+    .replace(/[Il]/g, "1")
+    .replace(/S/g, "5");
+  if (/[A-HJ-NP-RT-Za-z가-힣]/.test(loose)) return false;
+  return /\d{1,2}\s*[:.']\s*\d{2}/.test(loose) || /^\d{3,4}$/.test(loose.replace(/\D/g, ""));
+}
+
 function normalizeOcrEvent(value) {
   let text = normalizeOcrText(value);
   if (!text || /^["']+$/.test(text)) return "";
   text = text
     .replace(/[Oo]/g, "0")
+    .replace(/^A(?=x)/i, "4")
     .replace(/[ＡA](?=00m)/g, "4")
     .replace(/[ＤD]/g, "0")
     .replace(/rn/g, "m")
     .replace(/ｍ/g, "m")
+    .replace(/mnH/gi, "mH")
+    .replace(/mnR/gi, "mR")
+    .replace(/mnSC/gi, "mSC")
+    .replace(/rrH/gi, "mH")
     .replace(/10[0o]rH/i, "100mH")
     .replace(/100rH/i, "100mH")
     .replace(/4\s*[x×]\s*100\s*m?\s*R/i, "4x100mR")
@@ -443,6 +459,11 @@ function normalizeOcrRound(value) {
     .replace(/[Il]/g, "1")
     .replace(/기\)/g, "1)")
     .replace(/\s+/g, "");
+  text = text
+    .replace(/(\d+-\d+\+\d+)\d{1,2}[.:*']?\d{2}/g, "$1")
+    .replace(/(준\d+-\d+\+\d+)\d{1,2}[.:*']?\d{2}/g, "$1")
+    .replace(/(결승)\d{1,2}[.:*']?\d{2}/g, "$1")
+    .replace(/\d{1,2}[.:*']\d{2}/g, "");
   const compactHeat = text.match(/^(\d)(\d)\+(\d)$/);
   if (compactHeat) return `${compactHeat[1]}-${compactHeat[2]}+${compactHeat[3]}`;
   return text;
@@ -451,6 +472,7 @@ function normalizeOcrRound(value) {
 function normalizeOcrDivision(value) {
   return normalizeOcrText(value)
     .replace(/^[-–—,.:;]+|[-–—,.:;]+$/g, "")
+    .replace(/(남대|여대)(남일|여일)/g, "$1/$2")
     .replace(/\s+/g, "");
 }
 
@@ -471,11 +493,160 @@ function sectionForY(y, sectionMarks) {
   return "track";
 }
 
+function divisionPattern() {
+  return "(남중|여중|남고|여고|남대|여대|남일|여일|남초|여초|중학교부|고등학교부|대학교부|일반부|대학부|실업부|남대/남일|여대/여일|대학/실업\\(여\\)|대학/실업\\(남\\))";
+}
+
+function repairOcrRow(row) {
+  let eventName = normalizeOcrEvent(row.eventName);
+  let division = normalizeOcrDivision(row.division);
+  let round = normalizeOcrRound(row.round);
+  const divRe = new RegExp(`${divisionPattern()}$`);
+  const eventDivision = eventName.match(divRe);
+  if (eventDivision) {
+    eventName = eventName.slice(0, -eventDivision[1].length);
+    division = division || eventDivision[1];
+  }
+
+  const divisionRound = division.match(new RegExp(`^(${divisionPattern()})(결승.*|준?\\d+-\\d+\\+\\d+|\\d+종\\(?\\d*\\)?|\\d+-\\d+\\+\\d+)$`));
+  if (divisionRound) {
+    division = divisionRound[1];
+    round = round || normalizeOcrRound(divisionRound[divisionRound.length - 1]);
+  }
+
+  if (!eventName && /^["']+$/.test(row.eventName || "")) {
+    eventName = "";
+  }
+  if (!division && row.division) {
+    const maybeDivision = normalizeOcrDivision(row.division).match(new RegExp(divisionPattern()));
+    if (maybeDivision) division = maybeDivision[1];
+  }
+
+  return {
+    ...row,
+    eventName,
+    division,
+    round,
+  };
+}
+
+function repairTimeSequence(rows) {
+  const bySide = new Map();
+  for (const row of rows) {
+    const key = row.side || "left";
+    if (!bySide.has(key)) bySide.set(key, []);
+    bySide.get(key).push(row);
+  }
+
+  for (const sideRows of bySide.values()) {
+    sideRows.sort((a, b) => a.y - b.y);
+    for (let index = 1; index < sideRows.length - 1; index += 1) {
+      const prev = /^(\d{2}):(\d{2})$/.exec(sideRows[index - 1].time || "");
+      const current = /^(\d{2}):(\d{2})$/.exec(sideRows[index].time || "");
+      const next = /^(\d{2}):(\d{2})$/.exec(sideRows[index + 1].time || "");
+      if (!prev || !current || !next) continue;
+      const prevHour = Number(prev[1]);
+      const currentHour = Number(current[1]);
+      const nextHour = Number(next[1]);
+      if (currentHour >= 17 && prevHour <= 13 && nextHour <= 13) {
+        sideRows[index].time = `${String(currentHour - 6).padStart(2, "0")}:${current[2]}`;
+      }
+    }
+  }
+
+  return rows;
+}
+
+function draftDayNumber(draft) {
+  const match = String(draft?.day || draft?.title || "").match(/제\s*(\d{1,2})\s*일/);
+  return match ? Number(match[1]) : 0;
+}
+
+function parseFullKoreanDate(value) {
+  const text = normalizeOcrText(value);
+  const match = text.match(/(20\d{2})\s*[.]\s*(\d{1,2})\s*[.]\s*(\d{1,2})\s*\(?([월화수목금토일])?\)?/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    weekday: match[4] || "",
+  };
+}
+
+function formatKoreanDate(date) {
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  return `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}(${weekdays[date.getDay()]})`;
+}
+
+function normalizeDraftDatesAcrossBatch(drafts) {
+  const reference = drafts
+    .map((draft) => ({ draft, dayNo: draftDayNumber(draft), parsed: parseFullKoreanDate(draft.date) }))
+    .find((item) => item.dayNo && item.parsed && item.parsed.month && item.parsed.day);
+  if (!reference) return drafts;
+
+  const refDate = new Date(reference.parsed.year, reference.parsed.month - 1, reference.parsed.day);
+  for (const draft of drafts) {
+    const dayNo = draftDayNumber(draft);
+    if (!dayNo) continue;
+    const fixed = new Date(refDate);
+    fixed.setDate(refDate.getDate() + (dayNo - reference.dayNo));
+    draft.date = formatKoreanDate(fixed);
+  }
+  return drafts;
+}
+
+function detectTimeColumns(items, width, height) {
+  const rawTimes = items
+    .map((item) => ({ ...item, cx: item.x + (item.w || 0) / 2, time: normalizeOcrTime(item.text) }))
+    .filter((item) => item.time && looksLikeOcrTimeToken(item.text) && item.y > height * 0.12)
+    .sort((a, b) => a.cx - b.cx);
+  const clusters = [];
+  for (const item of rawTimes) {
+    const cluster = clusters.find((candidate) => Math.abs(candidate.x - item.cx) < Math.max(28, width * 0.035));
+    if (cluster) {
+      cluster.items.push(item);
+      cluster.x = cluster.items.reduce((sum, row) => sum + row.cx, 0) / cluster.items.length;
+    } else {
+      clusters.push({ x: item.cx, items: [item] });
+    }
+  }
+  const significant = clusters
+    .filter((cluster) => cluster.items.length >= 3)
+    .sort((a, b) => a.x - b.x)
+    .slice(0, 2);
+  const leftX = significant[0]?.x || width * 0.07;
+  const rightX = significant[1]?.x || width * 0.53;
+  const splitX = significant[1]
+    ? Math.max(width * 0.42, Math.min(width * 0.58, rightX - Math.max(20, width * 0.026)))
+    : width / 2;
+  return { leftX, rightX, splitX, hasRight: Boolean(significant[1]) };
+}
+
+function timeSide(item, columns) {
+  const cx = item.x + (item.w || 0) / 2;
+  if (!columns.hasRight) return "left";
+  return Math.abs(cx - columns.rightX) < Math.abs(cx - columns.leftX) ? "right" : "left";
+}
+
+function isTimeColumnItem(item, side, columns) {
+  const cx = item.x + (item.w || 0) / 2;
+  const target = side === "right" ? columns.rightX : columns.leftX;
+  return Math.abs(cx - target) <= Math.max(34, (columns.splitX || 0) * 0.08);
+}
+
+function sectionForRow(y, side, sectionMarks, height) {
+  if (sectionMarks.fieldSide && sectionMarks.fieldY && sectionMarks.fieldY < height * 0.25) {
+    return side === sectionMarks.fieldSide ? "field" : "track";
+  }
+  return sectionForY(y, sectionMarks);
+}
+
 function draftFromOcrPage(page) {
   const width = page.width || 1;
   const height = page.height || 1;
   const items = (page.items || [])
-    .map((item) => ({ ...item, text: normalizeOcrText(item.text) }))
+    .map((item) => ({ ...item, text: normalizeOcrText(item.text), cx: item.x + (item.w || 0) / 2 }))
     .filter((item) => item.text && item.confidence >= 0.12);
 
   const sectionMarks = {
@@ -484,7 +655,10 @@ function draftFromOcrPage(page) {
   };
   for (const item of items) {
     if (/트\s*랙|트.*경.*기/.test(item.text)) sectionMarks.trackY = sectionMarks.trackY || item.y;
-    if (/필\s*드|필.*경.*기/.test(item.text)) sectionMarks.fieldY = sectionMarks.fieldY || item.y;
+    if (/필\s*드|필.*경.*기/.test(item.text)) {
+      sectionMarks.fieldY = sectionMarks.fieldY || item.y;
+      if (item.cx > width * 0.45) sectionMarks.fieldSide = "right";
+    }
   }
 
   const draft = {
@@ -502,17 +676,19 @@ function draftFromOcrPage(page) {
   if (dayCandidate) draft.day = normalizeOcrText(dayCandidate.text).replace(/제기일/, "제1일");
   const dateParts = topItems
     .map((item) => item.text)
-    .filter((text) => /\d{4}|\d{1,2}\s*[.]\s*\d{1,2}|[월화수목금토일]\)/.test(text));
+    .filter((text) => /\d{4}|^\d{1,2}\s*[.]$|\d{1,2}\s*[.]\s*\d{1,2}|[월화수목금토일]\)/.test(text));
   if (dateParts.length) draft.date = normalizeOcrText(dateParts.join(" "));
 
+  const timeColumns = detectTimeColumns(items, width, height);
   const timeCandidates = items
     .map((item) => ({ ...item, time: normalizeOcrTime(item.text) }))
     .filter((item) => {
       if (!item.time) return false;
-      const sideStart = item.x < width / 2 ? 0 : width / 2;
-      const relativeX = (item.x - sideStart) / (width / 2);
-      return relativeX >= 0 && relativeX < 0.2 && item.y > height * 0.12;
+      if (!looksLikeOcrTimeToken(item.text)) return false;
+      const side = timeSide(item, timeColumns);
+      return isTimeColumnItem(item, side, timeColumns) && item.y > height * 0.12;
     })
+    .map((item) => ({ ...item, side: timeSide(item, timeColumns) }))
     .sort((a, b) => a.y - b.y || a.x - b.x);
 
   const carry = {
@@ -526,24 +702,26 @@ function draftFromOcrPage(page) {
   };
 
   for (const timeItem of timeCandidates) {
-    const sideStart = timeItem.x < width / 2 ? 0 : width / 2;
-    const sideEnd = sideStart + width / 2;
+    const side = timeItem.side;
+    const sideStart = side === "right" ? timeColumns.splitX : 0;
+    const sideEnd = side === "right" ? width : timeColumns.splitX;
+    const sideWidth = Math.max(1, sideEnd - sideStart);
     const yTolerance = Math.max(15, height * 0.014);
     const rowItems = items.filter((item) =>
       Math.abs(item.y - timeItem.y) <= yTolerance &&
-      item.x >= sideStart &&
-      item.x < sideEnd &&
+      item.cx >= sideStart &&
+      item.cx < sideEnd &&
+      (!looksLikeOcrTimeToken(item.text) || isTimeColumnItem(item, side, timeColumns)) &&
       !textLooksHeader(item.text)
     );
     const cols = [[], [], [], []];
     for (const item of rowItems) {
-      const relativeX = (item.x - sideStart) / (width / 2);
+      const relativeX = (item.cx - sideStart) / sideWidth;
       const col = relativeX < 0.18 ? 0 : relativeX < 0.39 ? 1 : relativeX < 0.66 ? 2 : 3;
       cols[col].push(item);
     }
 
-    const side = timeItem.x < width / 2 ? "left" : "right";
-    const section = sectionForY(timeItem.y, sectionMarks);
+    const section = sectionForRow(timeItem.y, side, sectionMarks, height);
     const time = adjustTimeForSide(timeItem.time, side);
     const eventName = joinColumnTexts(cols[1], normalizeOcrEvent) || carry[section].eventName;
     const division = joinColumnTexts(cols[2], normalizeOcrDivision) || carry[section].division;
@@ -553,14 +731,14 @@ function draftFromOcrPage(page) {
     seen.add(key);
     if (!eventName && !division && !round) continue;
 
-    const row = {
+    const row = repairOcrRow({
       time,
       eventName,
       division,
       round,
       side,
       y: timeItem.y,
-    };
+    });
     parsedRows[section].push(row);
     carry[section] = {
       eventName: row.eventName || carry[section].eventName,
@@ -570,6 +748,7 @@ function draftFromOcrPage(page) {
   }
 
   for (const section of ["track", "field"]) {
+    repairTimeSequence(parsedRows[section]);
     draft[section] = parsedRows[section].sort((a, b) => {
       const sideRank = (side) => side === "right" ? 1 : 0;
       return sideRank(a.side) - sideRank(b.side) || a.y - b.y || a.time.localeCompare(b.time);
@@ -635,6 +814,7 @@ async function draftsFromFiles(files, outDir, args) {
     if (args.date) draft.date = args.date;
     return draft;
   });
+  normalizeDraftDatesAcrossBatch(drafts);
   const draftPath = path.join(outDir, "ocr-drafts.json");
   await fsp.writeFile(draftPath, `${JSON.stringify({ drafts }, null, 2)}\n`, "utf8");
   return { drafts, draftPath };
