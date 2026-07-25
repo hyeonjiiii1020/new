@@ -82,6 +82,25 @@ function statusLooksReady(status) {
   return /완료|순위|completed|final/i.test(String(status || ""));
 }
 
+function statusMayHaveCompletePaceResults(status) {
+  return statusLooksReady(status) || /진행중|in_progress/i.test(String(status || ""));
+}
+
+function resultLooksSendable(event, resultPayload, fp) {
+  if (!fp) return false;
+  if (statusLooksReady(event.status)) return true;
+
+  const meta = resultPayload?.meta || {};
+  const rawEntryCount = Number(meta.rawEntryCount || 0);
+  const rawResultCount = Number(meta.rawResultCount || 0);
+  return (
+    event.params?.source === "pace" &&
+    /진행중|in_progress/i.test(String(event.status || "")) &&
+    rawEntryCount > 0 &&
+    rawResultCount >= rawEntryCount
+  );
+}
+
 function rowIdentity(row) {
   return [
     row.rank || "",
@@ -177,7 +196,7 @@ async function main() {
 
     for (const event of events) {
       if (sentCount >= MAX_SENDS_PER_RUN) break;
-      if (!statusLooksReady(event.status)) continue;
+      if (!statusMayHaveCompletePaceResults(event.status)) continue;
 
       const key = eventKey(event);
       const record = state.events[key] || {};
@@ -206,7 +225,7 @@ async function main() {
         latestFingerprint: fp
       };
 
-      if (!fp) continue;
+      if (!resultLooksSendable(event, resultPayload, fp)) continue;
       if (record.sentAt || record.sentFingerprint || record.sentMediaFingerprint) continue;
 
       try {

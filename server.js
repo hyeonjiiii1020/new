@@ -1298,6 +1298,8 @@ async function getPaceResult(searchParams, tournament) {
   const data = await fetchJson(`${PACE_ORIGIN}/api/events/${eventId}/live-results`);
   const rows = await parsePaceResult(data);
   const event = data.event || {};
+  const rawEntryCount = (data.heats || []).reduce((sum, heat) => sum + (heat.entries || []).length, 0);
+  const rawResultCount = (data.heats || []).reduce((sum, heat) => sum + (heat.results || []).length, 0);
   const meta = {
     tournament: tournament.name,
     period: tournament.period,
@@ -1306,6 +1308,8 @@ async function getPaceResult(searchParams, tournament) {
     division: paceGenderDivision(event, tournament),
     round: paceRoundLabel(event.round_type),
     date: tournament.period,
+    rawEntryCount,
+    rawResultCount,
     fetchedAt: new Date().toISOString()
   };
 
