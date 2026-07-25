@@ -12,6 +12,8 @@ const OUT_ROOT = process.env.KAAF_RESULT_CARD_OUT_DIR || path.join(process.env.H
 const MAX_SENDS_PER_RUN = Number(process.env.KAAF_WATCH_MAX_SENDS || 1);
 const ACTIVE_WINDOW_DAYS = Number(process.env.KAAF_WATCH_ACTIVE_WINDOW_DAYS || 2);
 const FETCH_TIMEOUT_MS = Number(process.env.KAAF_WATCH_FETCH_TIMEOUT_MS || 30000);
+const DIRECT_SEND = process.env.KAAF_WATCH_DIRECT_SEND === "1";
+const DIRECT_SEND_TARGET = process.env.KAAF_WATCH_SEND_TARGET || "telegram";
 const NODE_BIN = process.execPath;
 
 function readJson(filePath, fallback) {
@@ -179,6 +181,30 @@ function captureCards(tournament, event) {
   return payload.files;
 }
 
+function sendCardsDirectly(tournament, event, files) {
+  const body = [
+    `${tournament.name}`,
+    `${event.label} 결과 카드`,
+    ...files.map((file) => `MEDIA:${file}`)
+  ].join("\n");
+
+  const result = spawnSync("hermes", ["send", "--to", DIRECT_SEND_TARGET, "--file", "-", "--json"], {
+    input: body,
+    encoding: "utf8",
+    env: process.env,
+    timeout: 90000
+  });
+
+  if (result.status !== 0) {
+    throw new Error((result.stderr || result.stdout || "텔레그램 직접 전송 실패").trim());
+  }
+
+  const payload = JSON.parse(result.stdout || "{}");
+  if (!payload.success) {
+    throw new Error(payload.error || result.stdout || "텔레그램 직접 전송 실패");
+  }
+}
+
 async function main() {
   const state = readJson(STATE_PATH, { events: {} });
   if (!state.events || typeof state.events !== "object") state.events = {};
@@ -230,8 +256,12 @@ async function main() {
 
       try {
         const files = captureCards(tournament, event);
-        for (const file of files) {
-          mediaLines.push(`MEDIA:${file}`);
+        if (DIRECT_SEND) {
+          sendCardsDirectly(tournament, event, files);
+        } else {
+          for (const file of files) {
+            mediaLines.push(`MEDIA:${file}`);
+          }
         }
         state.events[key] = {
           ...state.events[key],
