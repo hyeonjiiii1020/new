@@ -11,6 +11,32 @@ const PACE_ORIGIN = "https://pace-rise-node.com";
 
 const TOURNAMENTS = [
   {
+    id: "jeongseon-distance-masters-2026",
+    name: "2026 정선 중장거리 챌린지대회 (마스터즈)",
+    period: "2026-07-25 ~ 2026-07-25",
+    place: "정선",
+    source: "pace",
+    comp_id: "51",
+    divisionMap: {
+      M: "남자부",
+      F: "여자부",
+      X: "혼성"
+    }
+  },
+  {
+    id: "jeongseon-distance-elite-2026",
+    name: "2026 정선 중장거리 챌린지대회 (엘리트)",
+    period: "2026-07-25 ~ 2026-07-25",
+    place: "정선군",
+    source: "pace",
+    comp_id: "58",
+    divisionMap: {
+      M: "남자부",
+      F: "여자부",
+      X: "혼성"
+    }
+  },
+  {
     id: "kuaf-university-2026",
     name: "제5회 전국대학육상경기대회",
     period: "2026-06-29 ~ 2026-07-01",
