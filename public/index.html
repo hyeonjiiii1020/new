@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>KAAF Result Card Maker</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="controls" aria-label="카드 설정">
+        <div class="brand">
+          <div>
+            <p class="eyebrow">KAAF LIVE RESULTS</p>
+            <h1>인스타 결과 카드</h1>
+          </div>
+          <span class="size-badge">1080 x 1350</span>
+        </div>
+
+        <div class="mode-tabs" role="tablist" aria-label="카드 종류">
+          <button id="resultModeBtn" class="mode-tab active" type="button">결과 카드</button>
+          <button id="scheduleModeBtn" class="mode-tab" type="button">시간표 카드</button>
+          <button id="ideasModeBtn" class="mode-tab" type="button">콘텐츠 후보</button>
+        </div>
+
+        <label class="field wide design-field">
+          <span>디자인</span>
+          <select id="designSelect">
+            <option value="press">프레스 블랙</option>
+            <option value="slate">슬레이트</option>
+            <option value="navy">네이비 클래식</option>
+            <option value="line">라인 미니멀</option>
+          </select>
+        </label>
+
+        <div id="resultControls" class="mode-panel">
+          <div class="control-grid">
+            <label class="field wide">
+              <span>대회</span>
+              <select id="tournamentSelect">
+                <option>대회 목록 불러오는 중...</option>
+              </select>
+            </label>
+
+            <label class="field wide">
+              <span>실시간 경기</span>
+              <select id="eventSelect">
+                <option>불러오는 중...</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>검색</span>
+              <input id="eventSearch" type="search" placeholder="100m, 결승, 여자부">
+            </label>
+
+            <button id="refreshBtn" class="secondary" type="button">새로고침</button>
+            <button id="loadBtn" class="primary" type="button">결과 불러오기</button>
+          </div>
+
+          <div class="control-grid title-grid">
+            <label class="field wide">
+              <span>제목</span>
+              <input id="titleInput" type="text">
+            </label>
+            <label class="field wide">
+              <span>부제</span>
+              <input id="subtitleInput" type="text">
+            </label>
+          </div>
+
+          <div class="toggles">
+            <label>
+              <input id="groupByHeat" type="checkbox" checked>
+              <span>예선/준결승 조별 페이지 나누기</span>
+            </label>
+            <label>
+              <input id="hideNonFinishers" type="checkbox" checked>
+              <span>DNS/DNF 제외</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="scheduleControls" class="mode-panel hidden">
+          <div class="control-grid">
+            <label class="field wide">
+              <span>대회명</span>
+              <input id="scheduleTitleInput" type="text" placeholder="2026 밀양아리랑 전국육상경기대회">
+            </label>
+
+            <label class="field wide">
+              <span>제작 방식</span>
+              <select id="scheduleSourceMode">
+                <option value="photo">원본 사진/PDF 카드 (텍스트 보존)</option>
+                <option value="table">표 디자인 카드 (JSON/직접입력)</option>
+              </select>
+            </label>
+
+            <label class="field wide">
+              <span>시간표 사진 또는 PDF (여러 파일 가능)</span>
+              <input id="schedulePhotoInput" type="file" accept="image/*,.jpg,.jpeg,.png,.webp,application/pdf,.pdf" multiple>
+            </label>
+
+            <label class="field wide">
+              <span>AI 추출 초안(JSON)</span>
+              <textarea id="scheduleDraftInput" rows="8" placeholder='{"day":"제1일 경기","date":"2026. 6. 29.(월)","track":[{"time":"08:00","event":"10,000m","division":"실업(남)","round":"결승1조(A,B)"}],"field":[{"time":"11:30","event":"높이뛰기","division":"실업(여)","round":"7종(2)"}]}'></textarea>
+            </label>
+
+            <div class="draft-actions wide">
+              <button id="reviewScheduleDraftBtn" class="secondary" type="button">초안 검토</button>
+              <button id="applyScheduleDraftBtn" class="primary" type="button">확인 후 표 카드로 반영</button>
+            </div>
+
+            <div id="scheduleDraftReview" class="draft-review wide" aria-live="polite">
+              AI가 읽은 초안을 붙여넣고 검토해주세요.
+            </div>
+
+            <label class="field wide">
+              <span>일차</span>
+              <input id="scheduleDayInput" type="text" placeholder="제1일 경기">
+            </label>
+
+            <label class="field wide">
+              <span>날짜</span>
+              <input id="scheduleDateInput" type="text" placeholder="2026. 6. 6(토)">
+            </label>
+
+            <label class="field wide">
+              <span>트랙 경기 표</span>
+              <textarea id="scheduleTrackInput" rows="9" placeholder="08:00 | 20kmW | 남대/남일/여일 | 결승&#10;08:05 | 10kmW | 남고/여고 | 결승&#10;10:00 | 110mH | 남고/남대/남일 | 10종(6)"></textarea>
+            </label>
+
+            <label class="field wide">
+              <span>필드 경기 표</span>
+              <textarea id="scheduleFieldInput" rows="7" placeholder="10:00 | 장대높이뛰기 | 여고 | 결승&#10;12:30 | 멀리뛰기 | 남대 | 결승"></textarea>
+            </label>
+          </div>
+
+          <label class="check-row">
+            <input id="scheduleCoverInput" type="checkbox">
+            <span>표지 포함</span>
+          </label>
+
+          <button id="buildScheduleBtn" class="primary wide-button" type="button">시간표 카드 만들기</button>
+        </div>
+
+        <div id="ideasControls" class="mode-panel hidden">
+          <div class="idea-source-tabs" aria-label="콘텐츠 후보 종류">
+            <button id="resultIdeasBtn" class="idea-source-tab active" type="button">대회 결과 후보</button>
+            <button id="issueIdeasBtn" class="idea-source-tab" type="button">육상 이슈 추천</button>
+          </div>
+          <div class="idea-intro">
+            <strong id="ideaIntroTitle">공식 결과 기반 추천</strong>
+            <span id="ideaIntroCopy">접전, 기록 소식, 다관왕, 팀 장악, 릴레이, 유망주 후보를 자동으로 찾습니다.</span>
+          </div>
+          <button id="refreshIdeasBtn" class="primary wide-button" type="button">대회 후보 새로고침</button>
+          <button id="refreshIssueIdeasBtn" class="primary wide-button hidden" type="button">이슈 추천 새로고침</button>
+        </div>
+
+        <div class="status-row">
+          <span id="statusText">연맹 실시간 결과를 연결하고 있습니다.</span>
+          <span id="rowCount">0명</span>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <div class="canvas-toolbar">
+          <button id="prevPage" class="icon-btn" type="button" aria-label="이전 페이지">‹</button>
+          <span id="pageInfo">1 / 1</span>
+          <button id="nextPage" class="icon-btn" type="button" aria-label="다음 페이지">›</button>
+          <span class="spacer"></span>
+          <button id="downloadCurrent" class="secondary" type="button">현재 PNG</button>
+          <button id="downloadAll" class="primary" type="button">전체 ZIP</button>
+        </div>
+
+        <div class="preview-wrap">
+          <article id="cardPreview" class="result-card" aria-label="결과 카드 미리보기">
+            <header class="card-head">
+              <h2 id="cardTitle">100m 여자부 결승</h2>
+              <p id="cardSubtitle">2026 밀양아리랑 전국육상경기대회 · 밀양</p>
+            </header>
+
+            <table class="result-table">
+              <thead>
+                <tr>
+                  <th>순위</th>
+                  <th>성명</th>
+                  <th>소속</th>
+                  <th id="recordHeader">기록</th>
+                </tr>
+              </thead>
+              <tbody id="cardRows"></tbody>
+            </table>
+            <p class="card-credit">한국육상매거진</p>
+          </article>
+
+          <article id="schedulePreview" class="schedule-card hidden" aria-label="시간표 카드 미리보기">
+            <img id="schedulePreviewImage" alt="시간표 카드 미리보기">
+          </article>
+
+          <section id="contentIdeasPanel" class="content-ideas-panel hidden" aria-label="콘텐츠 후보 추천">
+            <div class="ideas-head">
+              <div>
+                <p class="eyebrow">CONTENT PICKS</p>
+                <h2>콘텐츠 후보</h2>
+              </div>
+              <span id="ideasUpdated">공식 결과 기반</span>
+            </div>
+            <div id="ideasList" class="ideas-list">
+              <article class="idea-card empty">
+                <strong>후보 새로고침을 눌러주세요.</strong>
+                <p>한국육상매거진 인스타그램에 올릴 만한 결과 포인트를 추천합니다.</p>
+              </article>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+    <script src="schedule-automation.js"></script>
+  </body>
+</html>

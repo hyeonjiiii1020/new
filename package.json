@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/schedule-automation.test.js && node test/timetable-source.test.js"
   },
   "engines": {
     "node": ">=18"
