@@ -973,6 +973,7 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
   const minSize = options.minSize || 18;
   const lineHeightRatio = lineHeight <= 4 ? lineHeight : null;
   const maxHeight = options.maxHeight || Infinity;
+  const maxLines = options.maxLines || Infinity;
   let layout = null;
 
   for (let fontSize = baseSize; fontSize >= minSize; fontSize -= 1) {
@@ -995,7 +996,16 @@ function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = 
     const resolvedLineHeight = lineHeightRatio
       ? Math.max(14, Math.round(fontSize * lineHeightRatio))
       : lineHeight;
-    if (lines.length * resolvedLineHeight <= maxHeight || fontSize === minSize) {
+    if ((lines.length * resolvedLineHeight <= maxHeight && lines.length <= maxLines) || fontSize === minSize) {
+      if (lines.length > maxLines) {
+        const clipped = lines.slice(0, maxLines);
+        let lastLine = `${clipped[clipped.length - 1]}…`;
+        while (ctx.measureText(lastLine).width > maxWidth && lastLine.length > 2) {
+          lastLine = `${lastLine.slice(0, -2)}…`;
+        }
+        clipped[clipped.length - 1] = lastLine;
+        lines.splice(0, lines.length, ...clipped);
+      }
       layout = { lines, lineHeight: resolvedLineHeight };
       break;
     }
@@ -1684,56 +1694,146 @@ function renderScheduleCoverCanvas() {
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
-  const theme = currentTheme();
+  const day = normalize(els.scheduleDayInput.value) || "일차 확인";
+  const date = normalize(els.scheduleDateInput.value) || "날짜 확인";
 
-  drawCardChrome(ctx, "TIMETABLE");
-  ctx.fillStyle = theme.accent;
-  ctx.fillRect(CARD_WIDTH - 246, CARD_HEIGHT - 98, 170, 10);
+  const ink = "#082d63";
+  const sky = "#b8d5e8";
+  const paleSky = "#e7f0f6";
+  const paper = "#f7f3e9";
+  const signal = "#c9d99e";
+  const muted = "#526170";
 
-  ctx.strokeStyle = theme.softLine;
+  ctx.fillStyle = paper;
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  ctx.fillStyle = paleSky;
+  ctx.fillRect(32, 32, CARD_WIDTH - 64, 1080);
+
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = sky;
+  ctx.beginPath();
+  ctx.moveTo(32, 32);
+  ctx.lineTo(310, 32);
+  ctx.bezierCurveTo(218, 166, 146, 230, 32, 282);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(32, 228);
+  ctx.bezierCurveTo(260, 138, 430, 226, 700, 142);
+  ctx.bezierCurveTo(828, 102, 954, 76, 1048, 34);
+  ctx.lineTo(1048, 32);
+  ctx.lineTo(32, 32);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 2;
-  for (let y = 180; y <= 1110; y += 92) {
-    ctx.beginPath();
-    ctx.moveTo(112, y);
-    ctx.lineTo(CARD_WIDTH - 112, y);
-    ctx.stroke();
-  }
-  for (let x = 160; x <= CARD_WIDTH - 160; x += 190) {
-    ctx.beginPath();
-    ctx.moveTo(x, 208);
-    ctx.lineTo(x, 1070);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.moveTo(278, 84);
+  ctx.lineTo(510, 84);
+  ctx.moveTo(570, 84);
+  ctx.lineTo(802, 84);
+  ctx.moveTo(278, 268);
+  ctx.lineTo(802, 268);
+  ctx.stroke();
 
-  ctx.fillStyle = "rgba(255,255,255,0.88)";
-  ctx.fillRect(0, 320, CARD_WIDTH, 650);
-
-  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 548, 850, 66, {
-    size: 58,
-    weight: 950,
-    color: theme.accent,
-    minSize: 34
+  drawFitText(ctx, "◆", CARD_WIDTH / 2, 84, 36, {
+    align: "center",
+    size: 17,
+    weight: 900,
+    color: ink,
+    minSize: 14
   });
 
-  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 720, 820, {
-    align: "center",
-    size: 92,
-    weight: 950,
-    color: theme.ink,
-    minSize: 58
+  drawFitText(ctx, day, 70, 224, 260, {
+    align: "left",
+    size: 28,
+    weight: 900,
+    color: ink,
+    minSize: 21
+  });
+  drawFitText(ctx, date, CARD_WIDTH - 70, 224, 340, {
+    align: "right",
+    size: 26,
+    weight: 900,
+    color: ink,
+    minSize: 19
   });
 
-  drawFitText(ctx, "TIMETABLE", CARD_WIDTH / 2, 820, 620, {
+  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 160, 720, {
     align: "center",
-    size: 24,
+    size: 104,
+    weight: 950,
+    color: ink,
+    minSize: 64
+  });
+
+  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 446, 860, 58, {
+    size: 50,
+    weight: 900,
+    color: ink,
+    minSize: 30,
+    maxHeight: 132,
+    maxLines: 2
+  });
+
+  drawFitText(ctx, "ATHLETICS  /  MEET GUIDE", CARD_WIDTH / 2, 566, 620, {
+    align: "center",
+    size: 22,
     weight: 800,
-    color: theme.muted,
-    minSize: 18
+    color: muted,
+    minSize: 17
   });
 
-  ctx.strokeStyle = theme.softLine;
+  ctx.fillStyle = signal;
+  roundedRect(ctx, 70, 660, 940, 170, 10);
+  ctx.fill();
+  ctx.fillStyle = ink;
+  ctx.fillRect(70, 660, 18, 170);
+
+  drawFitText(ctx, "TRACK", 132, 718, 250, {
+    align: "left",
+    size: 42,
+    weight: 950,
+    color: ink,
+    minSize: 30
+  });
+  drawFitText(ctx, "FIELD", 132, 778, 250, {
+    align: "left",
+    size: 42,
+    weight: 950,
+    color: ink,
+    minSize: 30
+  });
+  drawFitText(ctx, "일정 한눈에 보기", 970, 748, 390, {
+    align: "right",
+    size: 26,
+    weight: 800,
+    color: muted,
+    minSize: 19
+  });
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(8,45,99,0.34)";
+  ctx.lineWidth = 9;
+  ctx.lineCap = "round";
+  [0, 34, 68, 102].forEach((offset) => {
+    ctx.beginPath();
+    ctx.moveTo(430, 1110 + offset * 0.1);
+    ctx.bezierCurveTo(610, 920 - offset, 822, 914 - offset, 1048, 1030 - offset * 0.2);
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  ctx.strokeStyle = "rgba(8,45,99,0.24)";
+  ctx.strokeRect(32, 32, CARD_WIDTH - 64, CARD_HEIGHT - 64);
   drawScheduleCredit(ctx);
   return canvas;
 }
@@ -2728,6 +2828,7 @@ els.scheduleDateInput.addEventListener("input", () => {
 els.scheduleCoverInput.addEventListener("change", () => {
   if (state.schedule.pages.length) {
     rebuildDesignedSchedulePreview();
+    setStatus(`${state.schedule.pages.length}장 시간표 카드로 업데이트했습니다.`);
   }
 });
 
