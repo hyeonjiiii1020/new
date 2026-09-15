@@ -19,6 +19,10 @@
       .trim();
   }
 
+  function isDittoValue(value) {
+    return /^(?:"|''|〃|동일|상동)$/.test(cleanText(value));
+  }
+
   function inferDayFromText(value) {
     const text = cleanText(value);
     const match =
@@ -42,7 +46,7 @@
     for (const key of keys) {
       const value = row && typeof row === "object" ? row[key] : "";
       const text = cleanText(value);
-      if (text) return text;
+      if (text && !isDittoValue(text)) return text;
     }
     return "";
   }
@@ -62,10 +66,10 @@
     const round = firstText(row, ["round", "라운드"]) || previous.round;
     const p = firstText(row, ["p", "P"]);
 
-    if (!eventName || !division || !round) {
+    if (!eventName || !division) {
       return {
         kind: "invalid",
-        reason: "종목, 종별, 라운드 중 비어 있는 값이 있습니다.",
+        reason: "시간, 종목, 종별 중 비어 있는 값이 있습니다.",
         row
       };
     }
@@ -76,7 +80,8 @@
       eventName,
       division,
       round,
-      p
+      p,
+      column: firstText(row, ["column", "side", "열", "구역"]) || ""
     };
 
     previous.eventName = normalized.eventName;
@@ -90,14 +95,20 @@
   }
 
   function normalizeRows(rows, section) {
+    const previousByColumn = new Map();
     const previous = { eventName: "", division: "", round: "" };
     const valid = [];
     const invalid = [];
 
     arrayFrom(rows).forEach((row, index) => {
-      const parsed = normalizeRow(row, section, previous);
+      const column = firstText(row, ["column", "side", "열", "구역"]);
+      const previousForColumn = column
+        ? (previousByColumn.get(column) || { eventName: "", division: "", round: "" })
+        : previous;
+      const parsed = normalizeRow(row, section, previousForColumn);
       if (parsed.kind === "valid") {
         valid.push(parsed.row);
+        if (column) previousByColumn.set(column, previousForColumn);
       } else {
         invalid.push({
           index: index + 1,
@@ -133,8 +144,16 @@
       };
     }
 
-    const trackRows = normalizeRows(parsed.track || parsed.tracks || [], "트랙경기");
-    const fieldRows = normalizeRows(parsed.field || parsed.fields || [], "필드경기");
+    const expandSection = (value) => {
+      if (Array.isArray(value)) return value;
+      if (!value || typeof value !== "object") return [];
+      return [
+        ...arrayFrom(value.left).map((row) => ({ ...row, column: row?.column || "left" })),
+        ...arrayFrom(value.right).map((row) => ({ ...row, column: row?.column || "right" }))
+      ];
+    };
+    const trackRows = normalizeRows(expandSection(parsed.track || parsed.tracks), "트랙경기");
+    const fieldRows = normalizeRows(expandSection(parsed.field || parsed.fields), "필드경기");
     const title = cleanText(parsed.title);
     const parsedDay = cleanText(parsed.day);
     const inferredDay = inferDayFromText(title) || inferDayFromText(parsedDay);
@@ -165,7 +184,7 @@
 
   function formatRows(rows) {
     return rows
-      .map((row) => [row.time, row.eventName, row.division, row.round, row.p].filter(Boolean).join(" | "))
+      .map((row) => [row.time, row.eventName, row.division, row.round, row.p, row.column].filter(Boolean).join(" | "))
       .join("\n");
   }
 
@@ -214,8 +233,13 @@
   }
 
   function applyDraft(result) {
+    const options = arguments[1] || {};
     if (!result.ok) {
       setStatus("초안에 확인이 필요한 행이 있습니다. 수정 후 다시 검토해주세요.");
+      return false;
+    }
+    if (!options.acknowledged) {
+      setStatus("초안의 확인 필요 항목을 검토한 뒤 확인란을 선택해주세요.");
       return false;
     }
 
@@ -230,6 +254,16 @@
     setValue("scheduleTrackInput", formatRows(result.draft.track));
     setValue("scheduleFieldInput", formatRows(result.draft.field));
 
+    const draftState = {
+      raw: String(options.raw || ""),
+      draft: result.draft,
+      acknowledged: true
+    };
+    root.scheduleDraftState = draftState;
+    if (typeof root.dispatchEvent === "function" && typeof root.CustomEvent === "function") {
+      root.dispatchEvent(new root.CustomEvent("schedule-draft-applied", { detail: draftState }));
+    }
+
     const buildButton = document.getElementById("buildScheduleBtn");
     if (buildButton) buildButton.click();
     setStatus(`검토한 초안으로 트랙 ${result.draft.track.length}개, 필드 ${result.draft.field.length}개를 반영했습니다.`);
@@ -241,27 +275,45 @@
     const review = document.getElementById("scheduleDraftReview");
     const reviewButton = document.getElementById("reviewScheduleDraftBtn");
     const applyButton = document.getElementById("applyScheduleDraftBtn");
-    if (!draftInput || !review || !reviewButton || !applyButton) return;
+    const acknowledgment = document.getElementById("scheduleDraftAcknowledge");
+    if (!draftInput || !review || !reviewButton || !applyButton || !acknowledgment) return;
 
     let lastResult = null;
+    let reviewedSource = "";
 
     reviewButton.addEventListener("click", () => {
       lastResult = parseScheduleDraft(draftInput.value);
+      reviewedSource = draftInput.value;
+      acknowledgment.checked = false;
       renderReview(review, lastResult);
       setStatus(lastResult.ok ? "AI 추출 초안을 검토했습니다. 이상 없으면 반영하세요." : lastResult.message);
     });
 
     applyButton.addEventListener("click", () => {
-      const result = lastResult || parseScheduleDraft(draftInput.value);
-      lastResult = result;
+      const reviewed = Boolean(lastResult) && reviewedSource === draftInput.value;
+      const result = reviewed ? lastResult : parseScheduleDraft(draftInput.value);
+      if (!reviewed) {
+        lastResult = result;
+        reviewedSource = "";
+      }
       renderReview(review, result);
-      applyDraft(result);
+      applyDraft(result, { acknowledged: reviewed && acknowledgment.checked, raw: draftInput.value });
     });
 
     draftInput.addEventListener("input", () => {
       lastResult = null;
+      reviewedSource = "";
+      acknowledgment.checked = false;
       review.classList.remove("is-error");
       review.textContent = "AI가 읽은 초안을 붙여넣고 검토해주세요.";
+    });
+
+    acknowledgment.addEventListener("change", () => {
+      if (!acknowledgment.checked) return;
+      if (!lastResult || reviewedSource !== draftInput.value) {
+        acknowledgment.checked = false;
+        setStatus("먼저 초안 검토를 완료해주세요.");
+      }
     });
   }
 

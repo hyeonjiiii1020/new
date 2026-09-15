@@ -6,8 +6,8 @@ const { URL } = require("node:url");
 const PORT = Number(process.env.PORT || 5173);
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, "public");
-const RESULT_ORIGIN = "https://result.kaaf.or.kr";
-const PACE_ORIGIN = "https://pace-rise-node.com";
+const RESULT_ORIGIN = process.env.RESULT_ORIGIN || "https://result.kaaf.or.kr";
+const PACE_ORIGIN = process.env.PACE_ORIGIN || "https://pace-rise-node.com";
 
 const TOURNAMENTS = [
   {
@@ -211,6 +211,14 @@ function sendJson(res, status, payload) {
   send(res, status, JSON.stringify(payload, null, 2));
 }
 
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 function decodeEntities(value) {
   return String(value || "")
     .replace(/&nbsp;/g, " ")
@@ -288,10 +296,14 @@ function parseGoResult(onclick) {
 }
 
 function findTournament(idOrCode) {
-  return (
-    TOURNAMENTS.find((item) => item.id === idOrCode || item.to_cd === idOrCode) ||
-    DEFAULT_TOURNAMENT
-  );
+  return TOURNAMENTS.find((item) => item.id === idOrCode || item.to_cd === idOrCode) || null;
+}
+
+function resolveTournament(idOrCode) {
+  if (!idOrCode) return DEFAULT_TOURNAMENT;
+  const tournament = findTournament(idOrCode);
+  if (!tournament) throw new ApiError(404, "tournament not found");
+  return tournament;
 }
 
 function parseEventList(html, tournament) {
@@ -383,6 +395,15 @@ function joinRelayNames(names) {
     .join(" ");
 }
 
+function normalizeRelayIdentity(name, team) {
+  const normalizedName = String(name || "").replace(/\s+/g, " ").trim();
+  const normalizedTeam = String(team || "").replace(/\s+/g, " ").trim();
+  if (!normalizedName || normalizedName === normalizedTeam) {
+    return { name: "", rosterAvailable: false };
+  }
+  return { name: normalizedName, rosterAvailable: true };
+}
+
 function parseRelayRows(section) {
   const rows = [];
   const tableRe = /<table\b[^>]*class=["'][^"']*team_table[^"']*["'][^>]*>([\s\S]*?)<\/table>/gi;
@@ -403,9 +424,10 @@ function parseRelayRows(section) {
       if (!current) return;
       const statusText = `${current.record} ${current.remark}`.toUpperCase();
       if (current.rank && current.record && !/\b(DNS|DNF)\b|기권|실격/.test(statusText)) {
+        const relayIdentity = normalizeRelayIdentity(joinRelayNames(current.names), current.team);
         rows.push({
           ...current,
-          name: joinRelayNames(current.names),
+          ...relayIdentity,
           resultKind: "relay"
         });
       }
@@ -467,7 +489,8 @@ function parseResultPage(html, tournament) {
     division: inputValues[1] || "",
     round: inputValues[2] || "",
     date: inputValues[3] || "",
-    fetchedAt: new Date().toISOString()
+    fetchedAt: new Date().toISOString(),
+    provisional: false
   };
 
   if (isRelayEventName(meta.eventName)) {
@@ -670,6 +693,7 @@ function parsePaceTrackRows(data) {
   const rows = [];
   const heatCount = data.heats?.length || 0;
   const shouldRankOverall = data.event?.round_type === "final" || heatCount <= 1;
+  const isRelay = data.event?.category === "relay";
 
   for (const heat of data.heats || []) {
     const heatRows = [];
@@ -680,15 +704,17 @@ function parsePaceTrackRows(data) {
 
       if (statusCode || time == null) continue;
 
+      const relayIdentity = isRelay ? normalizeRelayIdentity(entry.name, entry.team) : null;
       heatRows.push({
         rank: "",
-        name: entry.name || "",
+        name: relayIdentity ? relayIdentity.name : entry.name || "",
         team: entry.team || "",
         record: formatPaceTime(time),
-        wind: heat.wind || result?.wind || "",
+        wind: heat.wind ?? result?.wind ?? "",
         heat: paceHeatLabel(heat, heatCount, data.event),
         remark: result?.remark || "",
-        sortValue: Number(time)
+        sortValue: Number(time),
+        ...(relayIdentity ? { rosterAvailable: relayIdentity.rosterAvailable } : {})
       });
     }
     rows.push(...(shouldRankOverall ? heatRows : rankPaceRows(heatRows)));
@@ -942,12 +968,168 @@ function findPaceSubEvent(subEvents, definition) {
   return subEvents.find((event) => cleanCombinedEventName(event.name) === wanted);
 }
 
+function paceCombinedProgram(event) {
+  const eventName = cleanCombinedEventName(event?.name || event?.event_name || "");
+  if (/10종경기|decathlon/.test(eventName)) {
+    return { name: "decathlon", definitions: PACE_DECATHLON_EVENTS };
+  }
+  if (/7종경기|heptathlon/.test(eventName)) {
+    return { name: "heptathlon", definitions: PACE_HEPTATHLON_EVENTS };
+  }
+  return null;
+}
+
 function findMatchingPaceEntry(entries, parentEntry) {
   return entries.find((entry) => {
     const bibMatch = entry.bib_number && parentEntry.bib_number && String(entry.bib_number) === String(parentEntry.bib_number);
     const identityMatch = entry.name === parentEntry.name && entry.team === parentEntry.team;
     return bibMatch || identityMatch;
   });
+}
+
+function pacePayloadArray(payload, key) {
+  if (Array.isArray(payload)) return payload;
+  return Array.isArray(payload?.[key]) ? payload[key] : [];
+}
+
+function paceHeatValues(data, key) {
+  const values = [];
+  for (const heat of data.heats || []) {
+    values.push(...(heat[key] || []));
+  }
+  if (!values.length) {
+    values.push(...pacePayloadArray(data, key));
+  }
+  return values;
+}
+
+function paceCombinedEntries(data) {
+  return paceHeatValues(data, "entries");
+}
+
+function paceCombinedResults(data) {
+  return paceHeatValues(data, "results");
+}
+
+function findMatchingPaceCombinedResult(results, entry) {
+  return results.find((result) => {
+    const resultEntryId = result.event_entry_id ?? result.entry_id;
+    const entryId = entry.event_entry_id ?? entry.entry_id;
+    const idMatch = resultEntryId != null && entryId != null && String(resultEntryId) === String(entryId);
+    const identityMatch = result.name === entry.name && result.team === entry.team;
+    return idMatch || identityMatch;
+  });
+}
+
+function paceStatusText(entry, result) {
+  return [
+    entry?.status_code,
+    entry?.status,
+    result?.status_code,
+    result?.status,
+    result?.remark
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+}
+
+function isPaceExcludedEntry(entry, result) {
+  return /\b(DNS|DNF|DQ)\b|기권|실격/.test(paceStatusText(entry, result));
+}
+
+const PACE_COMBINED_TOTAL_FIELDS = [
+  "total_points",
+  "total_score",
+  "points_total",
+  "totalPoints",
+  "totalScore"
+];
+
+function hasPaceCombinedCompletionSignal(event) {
+  const roundStatus = String(event?.round_status || "").trim().toLowerCase();
+  return roundStatus === "completed" || event?.results_published === true;
+}
+
+function extractPaceCombinedTotal(...sources) {
+  for (const source of sources) {
+    for (const field of PACE_COMBINED_TOTAL_FIELDS) {
+      const rawValue = source?.[field];
+      if (rawValue == null || rawValue === "") continue;
+      const value = Number(rawValue);
+      if (Number.isFinite(value)) return value;
+    }
+  }
+  return null;
+}
+
+function paceCombinedRow(entry, total) {
+  return {
+    rank: "",
+    name: entry.name || "",
+    team: entry.team || "",
+    record: String(total),
+    wind: "",
+    heat: "",
+    remark: "",
+    sortValue: total,
+    resultKind: "points"
+  };
+}
+
+function missingPaceAthlete(entry) {
+  return {
+    eventEntryId: entry.event_entry_id ?? entry.entry_id ?? "",
+    name: entry.name || "",
+    team: entry.team || ""
+  };
+}
+
+function parseAuthoritativePaceCombinedRows(data) {
+  if (!hasPaceCombinedCompletionSignal(data.event)) return null;
+  const results = paceCombinedResults(data);
+  if (!results.length) return null;
+
+  const entries = paceCombinedEntries(data);
+  const candidates = entries.length
+    ? entries
+    : results.map((result) => ({
+        event_entry_id: result.event_entry_id ?? result.entry_id,
+        name: result.name || "",
+        team: result.team || ""
+      }));
+  const rows = [];
+  const missingAthletes = [];
+  let expected = 0;
+
+  for (const entry of candidates) {
+    const result = findMatchingPaceCombinedResult(results, entry);
+    if (isPaceExcludedEntry(entry, result)) continue;
+    expected += 1;
+    const total = extractPaceCombinedTotal(result, entry);
+    if (total == null) {
+      missingAthletes.push(missingPaceAthlete(entry));
+      continue;
+    }
+    rows.push(paceCombinedRow(entry, total));
+  }
+
+  if (!rows.length) return null;
+
+  return {
+    rows: rankPaceRows(rows, true),
+    meta: {
+      provisional: missingAthletes.length > 0,
+      completeness: {
+        expected,
+        loaded: rows.length,
+        missingEvents: missingAthletes.length
+          ? [{ key: "authoritative", name: "authoritative totals", missingAthletes }]
+          : [],
+        source: "authoritative"
+      }
+    }
+  };
 }
 
 function extractPaceSubRecord(subData, parentEntry) {
@@ -982,54 +1164,121 @@ function extractPaceSubRecord(subData, parentEntry) {
   return null;
 }
 
-async function parsePaceCombinedRows(event) {
+async function parsePaceCombinedRows(data) {
+  const event = data.event || {};
+  const authoritative = parseAuthoritativePaceCombinedRows(data);
+  if (authoritative) return authoritative;
+
+  const program = paceCombinedProgram(event);
+  if (!program) {
+    return {
+      rows: [],
+      meta: {
+        provisional: true,
+        supportedProgram: false,
+        completeness: {
+          expected: 0,
+          loaded: 0,
+          missingEvents: [{
+            key: "unsupported-program",
+            name: event.name || event.event_name || "",
+            reason: "unsupported_program",
+            missingAthletes: []
+          }],
+          source: "derived"
+        }
+      }
+    };
+  }
   const [subEvents, entries] = await Promise.all([
-    fetchJson(`${PACE_ORIGIN}/api/combined-sub-events?parent_event_id=${event.id}`),
-    fetchJson(`${PACE_ORIGIN}/api/events/${event.id}/entries`)
+    fetchJson(PACE_ORIGIN + "/api/combined-sub-events?parent_event_id=" + encodeURIComponent(event.id)),
+    fetchJson(PACE_ORIGIN + "/api/events/" + encodeURIComponent(event.id) + "/entries")
   ]);
-  const definitions = event.gender === "M" ? PACE_DECATHLON_EVENTS : PACE_HEPTATHLON_EVENTS;
+  const definitions = program.definitions;
+  const parentEntries = pacePayloadArray(entries, "entries").filter((entry) => !isPaceExcludedEntry(entry));
   const subData = new Map();
+  const missingEvents = [];
 
   for (const definition of definitions) {
     const subEvent = findPaceSubEvent(subEvents, definition);
-    if (!subEvent) continue;
+    if (!subEvent) {
+      missingEvents.push({
+        key: definition.key,
+        name: definition.name,
+        reason: "missing_event",
+        missingAthletes: parentEntries.map(missingPaceAthlete)
+      });
+      continue;
+    }
     try {
-      subData.set(definition.key, await fetchJson(`${PACE_ORIGIN}/api/events/${subEvent.id}/live-results`));
+      const subDataForEvent = await fetchJson(
+        PACE_ORIGIN + "/api/events/" + encodeURIComponent(subEvent.id) + "/live-results"
+      );
+      subData.set(definition.key, subDataForEvent);
+      const missingAthletes = parentEntries
+        .filter((entry) => extractPaceSubRecord(subDataForEvent, entry) == null)
+        .map(missingPaceAthlete);
+      if (missingAthletes.length) {
+        missingEvents.push({
+          key: definition.key,
+          name: definition.name,
+          reason: "missing_athlete_results",
+          missingAthletes
+        });
+      }
     } catch {
-      // Some later-day combined sub-events may not have live result data yet.
+      missingEvents.push({
+        key: definition.key,
+        name: definition.name,
+        reason: "unavailable",
+        missingAthletes: parentEntries.map(missingPaceAthlete)
+      });
     }
   }
 
-  const rows = entries
+  if (!parentEntries.length) {
+    missingEvents.push({
+      key: "entries",
+      name: "parent entries",
+      reason: "empty",
+      missingAthletes: []
+    });
+  }
+
+  const rows = parentEntries
     .map((entry) => {
+      let loadedSubResults = 0;
       const total = definitions.reduce((sum, definition) => {
         const data = subData.get(definition.key);
         if (!data) return sum;
         const record = extractPaceSubRecord(data, entry);
+        if (record == null) return sum;
+        loadedSubResults += 1;
         return sum + calcPaceWAPoints(definition.key, record);
       }, 0);
-      return {
-        rank: "",
-        name: entry.name || "",
-        team: entry.team || "",
-        record: total > 0 ? String(total) : "",
-        wind: "",
-        heat: "",
-        remark: "",
-        sortValue: total,
-        resultKind: "points"
-      };
+      return loadedSubResults ? paceCombinedRow(entry, total) : null;
     })
-    .filter((row) => row.sortValue > 0);
+    .filter(Boolean);
 
-  return rankPaceRows(rows, true);
+  return {
+    rows: rankPaceRows(rows, true),
+    meta: {
+      provisional: definitions.length === 0 || missingEvents.length > 0,
+      completeness: {
+        expected: definitions.length,
+        loaded: subData.size,
+        missingEvents,
+        source: "derived"
+      }
+    }
+  };
 }
 
 async function parsePaceResult(data) {
   const category = data.event?.category || "";
 
   if (category === "combined") {
-    return parsePaceCombinedRows(data.event);
+    return parsePaceCombinedRows(data);
   }
 
   if (category === "field_distance") {
@@ -1217,8 +1466,42 @@ async function getPaceEvents(tournament) {
   return parsedEvents;
 }
 
+function paceEventCompetitionId(event) {
+  return event?.competition_id ?? event?.competition?.id ?? "";
+}
+
+async function verifyPaceEventOwnership(eventId, event, tournament) {
+  const expectedCompetitionId = String(tournament.comp_id || "");
+  const sourceCompetitionId = paceEventCompetitionId(event);
+  if (sourceCompetitionId != null && String(sourceCompetitionId).trim()) {
+    if (String(sourceCompetitionId) !== expectedCompetitionId) {
+      throw new ApiError(409, "PACE event does not belong to the selected tournament");
+    }
+    return;
+  }
+
+  const listPayload = await fetchJson(
+    PACE_ORIGIN + "/api/events?competition_id=" + encodeURIComponent(expectedCompetitionId)
+  );
+  const listedEvents = pacePayloadArray(listPayload, "events");
+  const listedEvent = listedEvents.find((item) => String(item.id) === String(eventId));
+  if (!listedEvent) {
+    throw new ApiError(409, "PACE event ownership could not be verified");
+  }
+
+  const listedCompetitionId = paceEventCompetitionId(listedEvent);
+  if (listedCompetitionId != null && String(listedCompetitionId).trim() &&
+      String(listedCompetitionId) !== expectedCompetitionId) {
+    throw new ApiError(409, "PACE event does not belong to the selected tournament");
+  }
+}
+
 async function getResult(searchParams) {
-  const tournament = findTournament(searchParams.get("tournament_id") || searchParams.get("to_cd"));
+  const tournamentKey = searchParams.get("tournament_id") || searchParams.get("to_cd");
+  if (!tournamentKey) {
+    throw new ApiError(400, "tournament_id is missing");
+  }
+  const tournament = resolveTournament(tournamentKey);
   if (tournament.source === "pace" || searchParams.get("source") === "pace") {
     return getPaceResult(searchParams, tournament);
   }
@@ -1292,12 +1575,19 @@ async function getResult(searchParams) {
 async function getPaceResult(searchParams, tournament) {
   const eventId = searchParams.get("event_id");
   if (!eventId) {
-    throw new Error("PACE event_id is missing");
+    throw new ApiError(400, "PACE event_id is missing");
   }
 
-  const data = await fetchJson(`${PACE_ORIGIN}/api/events/${eventId}/live-results`);
-  const rows = await parsePaceResult(data);
+  const data = await fetchJson(PACE_ORIGIN + "/api/events/" + encodeURIComponent(eventId) + "/live-results");
   const event = data.event || {};
+  const sourceEventId = event?.id;
+  if (sourceEventId != null && String(sourceEventId).trim() && String(sourceEventId) !== String(eventId)) {
+    throw new ApiError(409, "PACE event ID does not match requested event");
+  }
+  await verifyPaceEventOwnership(eventId, event, tournament);
+  const parsed = await parsePaceResult(data);
+  const rows = Array.isArray(parsed) ? parsed : parsed.rows;
+  const parsedMeta = Array.isArray(parsed) ? {} : parsed.meta || {};
   const rawEntryCount = (data.heats || []).reduce((sum, heat) => sum + (heat.entries || []).length, 0);
   const rawResultCount = (data.heats || []).reduce((sum, heat) => sum + (heat.results || []).length, 0);
   const meta = {
@@ -1310,7 +1600,9 @@ async function getPaceResult(searchParams, tournament) {
     date: tournament.period,
     rawEntryCount,
     rawResultCount,
-    fetchedAt: new Date().toISOString()
+    fetchedAt: new Date().toISOString(),
+    provisional: false,
+    ...parsedMeta
   };
 
   return { tournament, meta, rows };
@@ -1430,7 +1722,7 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 }
 
 async function getContentIdeas(searchParams) {
-  const tournament = findTournament(searchParams.get("tournament_id") || searchParams.get("to_cd"));
+  const tournament = resolveTournament(searchParams.get("tournament_id") || searchParams.get("to_cd"));
   const events = (await getEvents(tournament))
     .filter(isContentIdeaEvent)
     .sort((a, b) => ideaEventPriority(a) - ideaEventPriority(b) || String(a.label).localeCompare(String(b.label), "ko"))
@@ -1858,7 +2150,10 @@ async function getIssueIdeas() {
 async function handleApi(req, res, pathname, searchParams) {
   try {
     if (pathname === "/api/health") {
-      return sendJson(res, 200, { ok: true });
+      const payload = { ok: true };
+      const buildCommit = String(process.env.RENDER_GIT_COMMIT || "").trim();
+      if (buildCommit) payload.buildCommit = buildCommit;
+      return sendJson(res, 200, payload);
     }
 
     if (pathname === "/api/tournaments") {
@@ -1869,7 +2164,7 @@ async function handleApi(req, res, pathname, searchParams) {
     }
 
     if (pathname === "/api/events") {
-      const tournament = findTournament(searchParams.get("tournament_id") || searchParams.get("to_cd"));
+      const tournament = resolveTournament(searchParams.get("tournament_id") || searchParams.get("to_cd"));
       const events = await getEvents(tournament);
       return sendJson(res, 200, { tournament, events });
     }
@@ -1891,8 +2186,9 @@ async function handleApi(req, res, pathname, searchParams) {
 
     return sendJson(res, 404, { error: "API endpoint not found" });
   } catch (error) {
-    return sendJson(res, 502, {
-      error: "대한육상연맹 결과를 불러오지 못했습니다.",
+    const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : 502;
+    return sendJson(res, status, {
+      error: status < 500 ? "결과 요청이 올바르지 않습니다." : "대한육상연맹 결과를 불러오지 못했습니다.",
       detail: error.message
     });
   }

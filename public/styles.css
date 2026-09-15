@@ -359,7 +359,8 @@ h1 {
 .preview-wrap {
   display: grid;
   place-items: start center;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 8px 8px 24px;
 }
 
@@ -694,6 +695,20 @@ h1 {
   word-break: keep-all;
 }
 
+.result-meta-notice {
+  margin: 8px auto 0;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid #d18b58;
+  border-radius: 999px;
+  color: #9a4a16;
+  background: #fff4e9;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
 .result-card[data-design="press"] .card-head p,
 .result-card[data-design="line"] .card-head p {
   color: #555;
@@ -816,6 +831,23 @@ h1 {
   font-size: 16px;
 }
 
+.result-record-cell {
+  white-space: normal;
+  line-height: 1.08;
+}
+
+.result-record,
+.result-wind {
+  display: block;
+}
+
+.result-wind {
+  margin-top: 3px;
+  color: #526170;
+  font-size: 0.72em;
+  font-weight: 800;
+}
+
 .result-table td:nth-child(3) {
   font-weight: 760;
 }
@@ -841,6 +873,19 @@ h1 {
   word-break: keep-all;
   line-height: 1.08;
   font-weight: 850;
+}
+
+.relay-name-primary,
+.relay-roster-note {
+  display: block;
+}
+
+.relay-roster-note {
+  margin-top: 3px;
+  color: #526170;
+  font-size: 0.78em;
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .result-table tr.medal-1 td {
@@ -897,6 +942,26 @@ h1 {
   height: 100%;
   object-fit: contain;
   background: #fff;
+}
+
+.draft-ack-row {
+  align-items: flex-start;
+  color: #314253;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.schedule-progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 12px;
+  accent-color: var(--navy);
+}
+
+.schedule-progress[hidden] {
+  display: none;
 }
 
 .empty {

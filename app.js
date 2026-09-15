@@ -3,6 +3,8 @@ const SCHEDULE_ROWS_PER_PAGE = 14;
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1350;
 const API_BASE = window.location.protocol === "file:" ? "http://localhost:5173" : "";
+const PDFJS_VERSION = "3.11.174";
+const PDF_TIMEOUT_MS = 12000;
 
 const state = {
   mode: "result",
@@ -15,6 +17,8 @@ const state = {
   ideaSource: "results",
   selectedEvent: null,
   result: null,
+  resultLoading: false,
+  resultRequestToken: 0,
   pages: [],
   currentPage: 0,
   manualTitle: false,
@@ -24,7 +28,11 @@ const state = {
     sourceCanvas: null,
     images: [],
     rows: [],
-    pages: []
+    pages: [],
+    draft: null,
+    draftAcknowledged: true,
+    validationError: "",
+    progress: null
   }
 };
 
@@ -59,8 +67,10 @@ const els = {
   recordHeader: $("#recordHeader"),
   cardRows: $("#cardRows"),
   cardPreview: $("#cardPreview"),
+  resultMetaNotice: $("#resultMetaNotice"),
   scheduleTitleInput: $("#scheduleTitleInput"),
   scheduleDraftInput: $("#scheduleDraftInput"),
+  scheduleDraftAcknowledge: $("#scheduleDraftAcknowledge"),
   scheduleSourceMode: $("#scheduleSourceMode"),
   schedulePhotoInput: $("#schedulePhotoInput"),
   scheduleDayInput: $("#scheduleDayInput"),
@@ -69,6 +79,8 @@ const els = {
   scheduleFieldInput: $("#scheduleFieldInput"),
   scheduleCoverInput: $("#scheduleCoverInput"),
   buildScheduleBtn: $("#buildScheduleBtn"),
+  scheduleProgress: $("#scheduleProgress"),
+  previewWrap: $(".preview-wrap"),
   schedulePreview: $("#schedulePreview"),
   schedulePreviewImage: $("#schedulePreviewImage"),
   contentIdeasPanel: $("#contentIdeasPanel"),
@@ -83,7 +95,7 @@ const els = {
   canvasToolbar: $(".canvas-toolbar")
 };
 
-const SCHEDULE_SECTION_LABELS = ["트랙 경기", "필드 경기"];
+let pdfJsPromise = null;
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -200,7 +212,7 @@ function applyDesignToPreview() {
 }
 
 function normalize(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 function rankText(rank) {
@@ -211,12 +223,40 @@ function rankText(rank) {
 function windText(wind) {
   const text = normalize(wind);
   if (!text) return "";
-  if (/^[0-9.]+$/.test(text)) return `+${text}`;
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) {
+    const formatted = /^-?\d+$/.test(text) ? Number(text).toFixed(1) : text;
+    return formatted.startsWith("-") ? formatted : `+${formatted}`;
+  }
   return text;
 }
 
 function recordText(row) {
   return normalize(row.record);
+}
+
+function recordLabel(row) {
+  const record = recordText(row);
+  const wind = windText(row.wind);
+  return [record, wind ? `(바람 ${wind})` : ""].filter(Boolean).join(" ");
+}
+
+function relayRosterUnavailable() {
+  return isRelayEvent() && state.result?.meta?.rosterAvailable === false;
+}
+
+function provisionalResultLabel() {
+  const meta = state.result?.meta || {};
+  if (meta.provisional !== true) return "";
+  const completeness = meta.completeness || {};
+  const expected = Number(completeness.expected);
+  const loaded = Number(completeness.loaded);
+  const missing = Array.isArray(completeness.missingEvents)
+    ? completeness.missingEvents.filter(Boolean).map(normalize)
+    : [];
+  const parts = ["잠정 집계 · 최종 아님"];
+  if (Number.isFinite(expected) && Number.isFinite(loaded)) parts.push(`${loaded}/${expected}개 종목 로드`);
+  if (missing.length) parts.push(`누락: ${missing.slice(0, 2).join(", ")}`);
+  return parts.join(" · ");
 }
 
 function isFinalEvent() {
@@ -249,9 +289,9 @@ function resultHeaders() {
 
 function resultValues(row) {
   if (isRelayEvent()) {
-    return [rankText(row.rank), row.team, row.name, recordText(row)];
+    return [rankText(row.rank), normalize(row.team), normalize(row.name), recordLabel(row)];
   }
-  return [rankText(row.rank), row.name, row.team, recordText(row)];
+  return [rankText(row.rank), normalize(row.name), normalize(row.team), recordLabel(row)];
 }
 
 function resultColumnWidths() {
@@ -319,6 +359,27 @@ function filenameSafe(value) {
     .slice(0, 80);
 }
 
+function applyPreviewScale() {
+  if (!els.previewWrap) return;
+  const preview = state.mode === "schedule" ? els.schedulePreview : state.mode === "result" ? els.cardPreview : null;
+  if (!preview) return;
+  [els.cardPreview, els.schedulePreview].forEach((element) => {
+    element.style.transform = "none";
+    element.style.left = "0px";
+    element.style.marginBottom = "";
+  });
+  const availableWidth = Math.max(240, els.previewWrap.clientWidth - 16);
+  const scale = Math.min(1, availableWidth / 540);
+  const wrapBox = els.previewWrap.getBoundingClientRect();
+  const baseBox = preview.getBoundingClientRect();
+  const targetLeft = wrapBox.left + (wrapBox.width - baseBox.width * scale) / 2;
+  preview.style.position = "relative";
+  preview.style.left = `${Math.round(targetLeft - baseBox.left)}px`;
+  preview.style.transformOrigin = "top left";
+  preview.style.transform = `scale(${scale})`;
+  preview.style.marginBottom = `${Math.round(675 * (scale - 1))}px`;
+}
+
 function setMode(mode) {
   state.mode = mode;
   els.resultModeBtn.classList.toggle("active", mode === "result");
@@ -349,6 +410,7 @@ function setMode(mode) {
         : "공식 결과를 분석해 콘텐츠 후보를 추천합니다."
     );
   }
+  applyPreviewScale();
 }
 
 function activeSchedulePage() {
@@ -488,8 +550,14 @@ async function loadSelectedResult() {
   if (!selected) return;
 
   state.selectedEvent = selected;
+  const requestToken = ++state.resultRequestToken;
+  state.resultLoading = true;
+  state.result = null;
+  state.pages = [];
+  state.currentPage = 0;
   setBusy(true);
   setResultStatus(`${state.selectedTournament?.name || "선택 대회"} · ${selected.label} 결과를 불러오는 중입니다.`);
+  renderCard();
 
   const params = new URLSearchParams(selected.params);
   params.set("tournament_id", state.selectedTournament?.id || selected.tournament_id || "");
@@ -497,14 +565,17 @@ async function loadSelectedResult() {
     const response = await fetch(apiUrl(`/api/result?${params.toString()}`));
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || payload.error || "결과 요청 실패");
+    if (requestToken !== state.resultRequestToken) return;
 
     state.result = payload;
+    state.resultLoading = false;
     applyDefaultText();
     buildPages();
     renderCard();
     setResultStatus(`${payload.tournament?.name || state.selectedTournament?.name || ""} · ${selected.label} 결과를 불러왔습니다.`);
   } catch (error) {
     console.error(error);
+    if (requestToken !== state.resultRequestToken) return;
     state.result = {
       tournament: state.selectedTournament,
       meta: {
@@ -517,12 +588,17 @@ async function loadSelectedResult() {
       },
       rows: []
     };
+    state.resultLoading = false;
     applyDefaultText(true);
     buildPages();
     renderCard();
     setResultStatus(`결과를 불러오지 못했습니다. ${error.message}`);
   } finally {
-    setBusy(false);
+    if (requestToken === state.resultRequestToken) {
+      state.resultLoading = false;
+      setBusy(false);
+      renderCard();
+    }
   }
 }
 
@@ -849,23 +925,36 @@ function currentPage() {
   return state.pages[state.currentPage] || { heat: "", rows: [] };
 }
 
+function updateResultMetaNotice() {
+  if (!els.resultMetaNotice) return;
+  const label = provisionalResultLabel();
+  els.resultMetaNotice.hidden = !label;
+  els.resultMetaNotice.textContent = label;
+}
+
 function renderCard() {
   applyDesignToPreview();
   const page = currentPage();
   const titleParts = resultTitleParts(page);
   const headers = resultHeaders();
+  const loading = state.resultLoading;
   els.cardTitle.innerHTML = "";
   const titleMain = document.createElement("span");
   titleMain.className = "title-main";
-  titleMain.textContent = titleParts.main;
+  titleMain.textContent = loading ? "결과 불러오는 중" : titleParts.main;
   els.cardTitle.append(titleMain);
-  if (titleParts.detail) {
+  if (!loading && titleParts.detail) {
     const titleDetail = document.createElement("span");
     titleDetail.className = "title-detail";
     titleDetail.textContent = titleParts.detail;
     els.cardTitle.append(titleDetail);
   }
-  els.cardSubtitle.textContent = normalize(els.subtitleInput.value);
+  els.cardSubtitle.textContent = loading
+    ? "선택한 경기의 최신 결과를 확인하는 중입니다."
+    : normalize(els.subtitleInput.value);
+  updateResultMetaNotice();
+  els.cardPreview.classList.toggle("is-loading", loading);
+  els.cardPreview.classList.toggle("provisional-result", Boolean(provisionalResultLabel()));
   els.cardPreview.classList.toggle("relay-result", isRelayEvent());
   els.cardPreview.classList.toggle("full-page-result", page.rows.length >= ROWS_PER_PAGE);
   els.cardPreview.querySelectorAll(".result-table thead th").forEach((cell, index) => {
@@ -879,7 +968,7 @@ function renderCard() {
     const cell = document.createElement("td");
     cell.className = "empty";
     cell.colSpan = 4;
-    cell.textContent = "표시할 결과가 없습니다.";
+    cell.textContent = loading ? "결과를 불러오는 중입니다." : "표시할 결과가 없습니다.";
     row.append(cell);
     els.cardRows.append(row);
   } else {
@@ -891,11 +980,35 @@ function renderCard() {
 
       resultValues(resultRow).forEach((value, index) => {
         const td = document.createElement("td");
-        td.textContent = value;
-        if (isRelayEvent() && index === 2) {
+        if (index === 3) {
+          td.className = "result-record-cell";
+          const record = document.createElement("span");
+          record.className = "result-record";
+          record.textContent = recordText(resultRow);
+          td.append(record);
+          const wind = windText(resultRow.wind);
+          if (wind) {
+            const windNote = document.createElement("small");
+            windNote.className = "result-wind";
+            windNote.textContent = `바람 ${wind}`;
+            td.append(windNote);
+          }
+        } else if (isRelayEvent() && index === 2) {
           td.className = "relay-names";
+          const primary = document.createElement("span");
+          primary.className = "relay-name-primary";
+          primary.textContent = value;
+          td.append(primary);
+          if (relayRosterUnavailable()) {
+            const note = document.createElement("small");
+            note.className = "relay-roster-note";
+            note.textContent = "명단 미제공";
+            td.append(note);
+          }
           const length = normalize(value).length;
           td.style.fontSize = length >= 24 ? "10px" : length >= 19 ? "11px" : length >= 15 ? "12px" : "13px";
+        } else {
+          td.textContent = value;
         }
         tr.append(td);
       });
@@ -905,21 +1018,27 @@ function renderCard() {
 
   if (state.mode === "result") {
     els.rowCount.textContent = `${displayRows().length}명`;
-    els.pageInfo.textContent = `${state.currentPage + 1} / ${state.pages.length}`;
+    els.pageInfo.textContent = state.pages.length ? `${state.currentPage + 1} / ${state.pages.length}` : "0 / 0";
     els.prevPage.disabled = state.currentPage === 0;
-    els.nextPage.disabled = state.currentPage >= state.pages.length - 1;
-    els.downloadCurrent.disabled = !page.rows.length;
-    els.downloadAll.disabled = !state.pages.some((item) => item.rows.length);
+    els.nextPage.disabled = !state.pages.length || state.currentPage >= state.pages.length - 1;
+    els.downloadCurrent.disabled = loading || !page.rows.length;
+    els.downloadAll.disabled = loading || !state.pages.some((item) => item.rows.length);
   }
+  applyPreviewScale();
 }
 
 function setBusy(isBusy) {
   els.refreshBtn.disabled = isBusy;
   els.loadBtn.disabled = isBusy;
+  if (state.mode === "result" && isBusy) {
+    els.downloadCurrent.disabled = true;
+    els.downloadAll.disabled = true;
+  }
 }
 
 function setScheduleBusy(isBusy) {
   els.buildScheduleBtn.disabled = isBusy;
+  els.scheduleTitleInput.disabled = isBusy;
   els.scheduleSourceMode.disabled = isBusy;
   els.schedulePhotoInput.disabled = isBusy;
   els.scheduleDayInput.disabled = isBusy;
@@ -927,6 +1046,49 @@ function setScheduleBusy(isBusy) {
   els.scheduleTrackInput.disabled = isBusy;
   els.scheduleFieldInput.disabled = isBusy;
 }
+
+function updateScheduleProgress(fileIndex, fileCount, pageNumber = 1, pageCount = 1) {
+  const safePageCount = Math.max(1, pageCount);
+  const completed = fileIndex + pageNumber / safePageCount;
+  const percent = Math.min(100, Math.round((completed / Math.max(1, fileCount)) * 100));
+  state.schedule.progress = { fileIndex, fileCount, pageNumber, pageCount, percent };
+  if (els.scheduleProgress) {
+    els.scheduleProgress.hidden = false;
+    els.scheduleProgress.value = percent;
+    els.scheduleProgress.setAttribute("aria-label", `${fileIndex + 1}/${fileCount} 파일 ${pageNumber}/${safePageCount} 페이지 처리 중`);
+  }
+  setStatus(`${fileIndex + 1}/${fileCount} 파일 처리 중 · ${pageNumber}/${safePageCount} 페이지`);
+}
+
+function clearScheduleProgress() {
+  state.schedule.progress = null;
+  if (els.scheduleProgress) {
+    els.scheduleProgress.hidden = true;
+    els.scheduleProgress.value = 0;
+  }
+}
+
+function hasUnacknowledgedScheduleDraft() {
+  return Boolean(state.schedule.draft?.uncertain?.length) && !state.schedule.draftAcknowledged;
+}
+
+function canExportSchedule() {
+  return Boolean(state.schedule.pages.length) && !state.schedule.validationError && !hasUnacknowledgedScheduleDraft();
+}
+
+function markScheduleDraftDirty() {
+  if (state.schedule.draft?.uncertain?.length) {
+    state.schedule.draftAcknowledged = false;
+    if (els.scheduleDraftAcknowledge) els.scheduleDraftAcknowledge.checked = false;
+  }
+}
+
+window.addEventListener("schedule-draft-applied", (event) => {
+  const detail = event.detail || {};
+  state.schedule.draft = detail.draft || null;
+  state.schedule.draftAcknowledged = detail.acknowledged === true;
+  state.schedule.validationError = "";
+});
 
 function roundedRect(ctx, x, y, width, height, radius) {
   ctx.beginPath();
@@ -966,27 +1128,55 @@ function drawFitText(ctx, text, x, y, maxWidth, options = {}) {
 }
 
 function drawCenteredMultiline(ctx, text, x, y, maxWidth, lineHeight, options = {}) {
-  const words = [...String(text || "")];
-  const lines = [];
-  let current = "";
+  const weight = options.weight || 900;
+  const baseSize = options.size || 66;
+  const minSize = options.minSize || 18;
+  const lineHeightRatio = lineHeight <= 4 ? lineHeight : null;
+  const maxHeight = options.maxHeight || Infinity;
+  const maxLines = options.maxLines || Infinity;
+  let layout = null;
 
-  ctx.font = `${options.weight || 900} ${options.size || 66}px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Arial, sans-serif`;
+  for (let fontSize = baseSize; fontSize >= minSize; fontSize -= 1) {
+    ctx.font = `${weight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Arial, sans-serif`;
+    const lines = [];
+    for (const sourceLine of String(text || "").split("\n")) {
+      let current = "";
+      for (const char of [...sourceLine]) {
+        const candidate = current + char;
+        if (ctx.measureText(candidate).width > maxWidth && current) {
+          lines.push(current);
+          current = char;
+        } else {
+          current = candidate;
+        }
+      }
+      if (current) lines.push(current);
+    }
 
-  for (const char of words) {
-    const candidate = current + char;
-    if (ctx.measureText(candidate).width > maxWidth && current) {
-      lines.push(current);
-      current = char;
-    } else {
-      current = candidate;
+    const resolvedLineHeight = lineHeightRatio
+      ? Math.max(14, Math.round(fontSize * lineHeightRatio))
+      : lineHeight;
+    if ((lines.length * resolvedLineHeight <= maxHeight && lines.length <= maxLines) || fontSize === minSize) {
+      if (lines.length > maxLines && options.allowEllipsis !== false) {
+        const clipped = lines.slice(0, maxLines);
+        let lastLine = `${clipped[clipped.length - 1]}…`;
+        while (ctx.measureText(lastLine).width > maxWidth && lastLine.length > 2) {
+          lastLine = `${lastLine.slice(0, -2)}…`;
+        }
+        clipped[clipped.length - 1] = lastLine;
+        lines.splice(0, lines.length, ...clipped);
+      }
+      layout = { lines, lineHeight: resolvedLineHeight };
+      break;
     }
   }
-  if (current) lines.push(current);
 
-  const startY = y - ((lines.length - 1) * lineHeight) / 2;
-  lines.slice(0, 2).forEach((line, index) => {
-    drawFitText(ctx, line, x, startY + index * lineHeight, maxWidth, {
+  if (!layout) return;
+  const startY = y - ((layout.lines.length - 1) * layout.lineHeight) / 2;
+  layout.lines.forEach((line, index) => {
+    drawFitText(ctx, line, x, startY + index * layout.lineHeight, maxWidth, {
       ...options,
+      size: Math.max(minSize, Math.min(baseSize, Math.floor(layout.lineHeight / (lineHeightRatio || 1.08)))),
       align: "center",
       baseline: "middle"
     });
@@ -1042,6 +1232,56 @@ function drawRelayNames(ctx, text, x, y, maxWidth, maxHeight, options = {}) {
   });
 }
 
+function drawRelayRoster(ctx, text, x, y, maxWidth, maxHeight, options = {}) {
+  const note = relayRosterUnavailable() ? "명단 미제공" : "";
+  if (!note) {
+    drawRelayNames(ctx, text, x, y, maxWidth, maxHeight, options);
+    return;
+  }
+
+  const primary = normalize(text);
+  if (primary) {
+    drawRelayNames(ctx, primary, x, y - Math.min(10, maxHeight * 0.12), maxWidth, Math.max(28, maxHeight - 24), options);
+  }
+  drawFitText(ctx, note, x, y + Math.min(27, maxHeight * 0.3), maxWidth, {
+    align: "left",
+    size: 18,
+    weight: 850,
+    color: options.color || "#526170",
+    minSize: 14
+  });
+}
+
+function drawResultRecord(ctx, row, x, y, width, height, color) {
+  const record = recordText(row);
+  const wind = windText(row.wind);
+  if (!wind) {
+    drawFitText(ctx, recordLabel(row), x + width / 2, y + height / 2, width - 24, {
+      align: "center",
+      size: 32,
+      weight: 900,
+      color,
+      minSize: 21
+    });
+    return;
+  }
+
+  drawFitText(ctx, record, x + width / 2, y + height * 0.37, width - 24, {
+    align: "center",
+    size: 32,
+    weight: 900,
+    color,
+    minSize: 22
+  });
+  drawFitText(ctx, `바람 ${wind}`, x + width / 2, y + height * 0.68, width - 18, {
+    align: "center",
+    size: 18,
+    weight: 850,
+    color,
+    minSize: 14
+  });
+}
+
 function drawResultHeader(ctx, page) {
   const theme = currentTheme();
   const titleParts = resultTitleParts(page);
@@ -1071,8 +1311,19 @@ function drawResultHeader(ctx, page) {
     minSize: 23
   });
 
+  const provisionalLabel = provisionalResultLabel();
+  if (provisionalLabel) {
+    drawFitText(ctx, provisionalLabel, CARD_WIDTH / 2, hasDetail ? 280 : 260, 900, {
+      align: "center",
+      size: 22,
+      weight: 900,
+      color: "#9a4a16",
+      minSize: 15
+    });
+  }
+
   return {
-    tableY: hasDetail ? 322 : 306
+    tableY: hasDetail ? (provisionalLabel ? 330 : 322) : (provisionalLabel ? 314 : 306)
   };
 }
 
@@ -1132,6 +1383,82 @@ function loadImageFromFile(file) {
     };
     image.src = url;
   });
+}
+
+function isPdfFile(file) {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timer));
+}
+
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (pdfJsPromise) return pdfJsPromise;
+
+  const promise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const baseUrl = new URL("vendor/pdfjs/", document.baseURI);
+    script.src = new URL("pdf.min.js", baseUrl).href;
+    script.async = true;
+    script.onload = () => {
+      if (!window.pdfjsLib) {
+        reject(new Error("PDF.js를 불러오지 못했습니다."));
+        return;
+      }
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdf.worker.min.js", baseUrl).href;
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("PDF 처리 모듈을 불러오지 못했습니다. 로컬 PDF 자산을 확인한 뒤 다시 시도해주세요."));
+    document.head.append(script);
+  });
+  pdfJsPromise = withTimeout(promise, PDF_TIMEOUT_MS, "PDF 처리 모듈 응답 시간이 초과되었습니다. 다시 시도해주세요.").catch((error) => {
+    pdfJsPromise = null;
+    throw error;
+  });
+  return pdfJsPromise;
+}
+
+async function loadPdfCanvases(file, onProgress = () => {}) {
+  const pdfjs = await loadPdfJs();
+  const data = await withTimeout(file.arrayBuffer(), PDF_TIMEOUT_MS, `${file.name || "PDF"} 파일 읽기 시간이 초과되었습니다.`);
+  const pdf = await withTimeout(
+    pdfjs.getDocument({ data }).promise,
+    PDF_TIMEOUT_MS,
+    `${file.name || "PDF"} 문서를 여는 시간이 초과되었습니다.`
+  );
+  const canvases = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    onProgress({ pageNumber, pageCount: pdf.numPages });
+    const page = await withTimeout(pdf.getPage(pageNumber), PDF_TIMEOUT_MS, `${file.name || "PDF"} ${pageNumber}페이지를 읽지 못했습니다.`);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = Math.min(2, 2600 / Math.max(baseViewport.width, baseViewport.height));
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    await withTimeout(
+      page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise,
+      PDF_TIMEOUT_MS,
+      `${file.name || "PDF"} ${pageNumber}페이지 렌더링 시간이 초과되었습니다.`
+    );
+    canvases.push(canvas);
+  }
+
+  return canvases;
+}
+
+async function loadScheduleCanvases(file, onProgress = () => {}) {
+  if (isPdfFile(file)) return loadPdfCanvases(file, onProgress);
+  onProgress({ pageNumber: 1, pageCount: 1 });
+  const image = await loadImageFromFile(file);
+  return [canvasFromImage(image)];
 }
 
 function canvasFromImage(image) {
@@ -1240,8 +1567,24 @@ function fitContain(sourceWidth, sourceHeight, box) {
 
 function selectedSchedulePhotoFiles() {
   return [...(els.schedulePhotoInput.files || [])].filter((file) =>
-    file.type.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(file.name)
+    file.type.startsWith("image/") || file.type === "application/pdf" || /\.(jpe?g|png|webp|pdf)$/i.test(file.name)
   );
+}
+
+function inferScheduleImageMeta(fileName) {
+  const text = normalize(fileName);
+  const dayMatch = text.match(/(?:제\s*)?(\d{1,2})\s*일(?:차)?/);
+  const dateMatch = text.match(/(20\d{2})[.\-_ ]+(\d{1,2})[.\-_ ]+(\d{1,2})/);
+  const section = /필드/i.test(text) || /필\s*드/.test(text)
+    ? "필드경기"
+    : /트랙/i.test(text)
+      ? "트랙경기"
+      : "";
+  return {
+    day: dayMatch ? `제${Number(dayMatch[1])}일 경기` : "",
+    date: dateMatch ? `${dateMatch[1]}. ${Number(dateMatch[2])}. ${Number(dateMatch[3])}.` : "",
+    section
+  };
 }
 
 function scheduleRowScores(canvas) {
@@ -1323,6 +1666,7 @@ function parseScheduleLine(line, section, carry) {
   let rest = cleanLine.slice(timeMatch.index + timeMatch[0].length).trim();
   rest = rest.replace(/^[-–—|,.:;]+/, "").trim();
   let cells = rest.split(/\s*\|\s*|\t+|\s{2,}/).map(cleanScheduleCell).filter(Boolean);
+  const columnToken = /^(?:left|right|l|r)$/i.test(cells.at(-1) || "") ? cells.pop() : "";
 
   let eventName = cells[0] || "";
   let division = cells[1] || "";
@@ -1356,7 +1700,8 @@ function parseScheduleLine(line, section, carry) {
     time,
     eventName: eventName || carry.eventName,
     division: division || carry.division,
-    round: round || carry.round
+    round: round || carry.round,
+    column: columnToken
   };
 
   carry.eventName = row.eventName;
@@ -1450,8 +1795,95 @@ function currentScheduleMeta() {
   const inferredDay = inferScheduleDayFromText(els.scheduleTitleInput.value);
   return {
     day: explicitDay || inferredDay,
-    date: normalize(els.scheduleDateInput.value)
+    date: normalize(els.scheduleDateInput.value),
+    includedDays: [explicitDay || inferredDay].filter(Boolean),
+    includedDates: [normalize(els.scheduleDateInput.value)].filter(Boolean)
   };
+}
+
+function uniqueScheduleValues(values) {
+  return [...new Set(values.map(normalize).filter(Boolean))];
+}
+
+function packageScheduleMeta(images, fallback = currentScheduleMeta()) {
+  const includedDays = uniqueScheduleValues(images.map((image) => image.day));
+  const includedDates = uniqueScheduleValues(images.map((image) => image.date));
+  const includedSections = uniqueScheduleValues(images.map((image) => image.section));
+  return {
+    includedDays: includedDays.length ? includedDays : uniqueScheduleValues(fallback.includedDays || [fallback.day]),
+    includedDates: includedDates.length ? includedDates : uniqueScheduleValues(fallback.includedDates || [fallback.date]),
+    includedSections: includedSections.length ? includedSections : ["시간표"]
+  };
+}
+
+function scheduleTextLines(ctx, text, maxWidth, fontSize, weight = 760) {
+  ctx.font = `${weight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Arial, sans-serif`;
+  const lines = [];
+  for (const sourceLine of String(text || "").split("\n")) {
+    let current = "";
+    for (const char of [...sourceLine]) {
+      const candidate = current + char;
+      if (ctx.measureText(candidate).width > maxWidth && current) {
+        lines.push(current);
+        current = char;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) lines.push(current);
+  }
+  return lines;
+}
+
+function scheduleRowMaxLength(row) {
+  return Math.max(
+    normalize(row.time).length,
+    normalize(row.eventName).length,
+    normalize(row.division).length,
+    normalize(row.round).length
+  );
+}
+
+function scheduleRowsPerPage(rows) {
+  const maxLength = Math.max(0, ...rows.map(scheduleRowMaxLength));
+  if (maxLength >= 70) return 6;
+  if (maxLength >= 42) return 8;
+  if (maxLength >= 24) return 10;
+  return SCHEDULE_ROWS_PER_PAGE;
+}
+
+function scheduleRowHeight(rows) {
+  const maxLength = Math.max(0, ...rows.map(scheduleRowMaxLength));
+  if (maxLength >= 70) return 92;
+  if (maxLength >= 42) return 78;
+  if (maxLength >= 24) return 64;
+  return 48;
+}
+
+function validateScheduleContent(rows) {
+  const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
+  const ctx = document.createElement("canvas").getContext("2d");
+  const titleLines = scheduleTextLines(ctx, title, 860, 30, 900);
+  if (titleLines.length > 6) {
+    return "대회명이 너무 깁니다. 6줄 안에 들어오도록 제목을 줄인 뒤 다시 만들어주세요.";
+  }
+
+  const rowH = scheduleRowHeight(rows);
+  const widths = [74, 112, 140, 132];
+  const fields = ["시간", "종목", "종별", "라운드"];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const values = [row.time, row.eventName, row.division, row.round];
+    for (let column = 0; column < values.length; column += 1) {
+      const minSize = column === 3 ? 11 : 12;
+      const lines = scheduleTextLines(ctx, values[column], widths[column] - 8, minSize, column === 0 || column === 1 ? 860 : 730);
+      const maxLines = Math.max(1, Math.floor((rowH - 6) / (minSize * 1.08)));
+      if (lines.length > maxLines) {
+        return `${index + 1}행 ${fields[column]} 텍스트가 너무 깁니다. 내용을 줄이거나 여러 행으로 나눈 뒤 다시 만들어주세요.`;
+      }
+    }
+  }
+  return "";
 }
 
 function buildDesignedSchedulePages() {
@@ -1459,15 +1891,33 @@ function buildDesignedSchedulePages() {
   const pages = [];
   const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover", ...meta });
+    pages.push({
+      type: "cover",
+      ...meta,
+      includedDays: meta.includedDays,
+      includedDates: meta.includedDates,
+      includedSections: uniqueScheduleValues(rows.map((row) => row.section))
+    });
   }
 
-  if (trackRows.length) {
-    pages.push({ type: "scheduleDesigned", section: "트랙경기", ...meta, rows: trackRows });
-  }
-  if (fieldRows.length) {
-    pages.push({ type: "scheduleDesigned", section: "필드경기", ...meta, rows: fieldRows });
-  }
+  const addSectionPages = (section, sectionRows) => {
+    if (!sectionRows.length) return;
+    const pageSize = scheduleRowsPerPage(sectionRows);
+    const total = Math.max(1, Math.ceil(sectionRows.length / pageSize));
+    for (let index = 0; index < sectionRows.length; index += pageSize) {
+      pages.push({
+        type: "scheduleDesigned",
+        section,
+        part: Math.floor(index / pageSize) + 1,
+        total,
+        ...meta,
+        rows: sectionRows.slice(index, index + pageSize)
+      });
+    }
+  };
+
+  addSectionPages("트랙경기", trackRows);
+  addSectionPages("필드경기", fieldRows);
 
   return { pages, rows };
 }
@@ -1475,19 +1925,20 @@ function buildDesignedSchedulePages() {
 function buildSchedulePagesFromPhotos(images) {
   const pages = [];
   const meta = currentScheduleMeta();
+  const packageMeta = packageScheduleMeta(images, meta);
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover", ...meta });
+    pages.push({ type: "cover", ...meta, ...packageMeta });
   }
 
   images.forEach((image, index) => {
-    const fallback = images.length === 1 ? "시간표" : SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`;
     pages.push({
       type: "scheduleDesignedPhoto",
       canvas: image.canvas,
       fileName: image.fileName,
       imageIndex: index + 1,
-      ...meta,
-      section: image.section || fallback
+      day: image.day || meta.day,
+      date: image.date || meta.date,
+      section: image.section || "시간표"
     });
   });
 
@@ -1498,7 +1949,7 @@ function buildSchedulePagesFromCanvas(sourceCanvas) {
   const pages = [];
   const meta = currentScheduleMeta();
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover", ...meta });
+    pages.push({ type: "cover", ...meta, includedDays: meta.includedDays, includedDates: meta.includedDates });
   }
 
   const sourceWidth = sourceCanvas.width;
@@ -1534,18 +1985,19 @@ function buildSchedulePagesFromCanvas(sourceCanvas) {
 function buildSchedulePagesFromImages(images) {
   const pages = [];
   const meta = currentScheduleMeta();
+  const packageMeta = packageScheduleMeta(images, meta);
   if (els.scheduleCoverInput.checked) {
-    pages.push({ type: "cover", ...meta });
+    pages.push({ type: "cover", ...meta, ...packageMeta });
   }
 
-  images.forEach((image, index) => {
+  images.forEach((image) => {
     pages.push({
       type: "schedulePhoto",
       canvas: image.canvas,
       fileName: image.fileName,
-      imageIndex: index + 1,
+      imageIndex: images.indexOf(image) + 1,
       ...meta,
-      section: image.section || SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`
+      section: image.section || "시간표"
     });
   });
 
@@ -1586,62 +2038,164 @@ function renderScheduleEmptyCanvas() {
   return canvas;
 }
 
-function renderScheduleCoverCanvas() {
+function scheduleUncertaintyLabel() {
+  const uncertain = state.schedule.draft?.uncertain || [];
+  if (!uncertain.length) return "";
+  return `OCR 확인 완료 · ${uncertain.slice(0, 2).join(" · ")}`;
+}
+
+function renderScheduleCoverCanvas(page = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = CARD_WIDTH;
   canvas.height = CARD_HEIGHT;
   const ctx = canvas.getContext("2d");
   const title = normalize(els.scheduleTitleInput.value) || "경기시간표";
-  const theme = currentTheme();
+  const days = uniqueScheduleValues(page.includedDays || [page.day]);
+  const dates = uniqueScheduleValues(page.includedDates || [page.date]);
+  const sections = uniqueScheduleValues(page.includedSections || ["시간표"]);
+  const dayLabel = days.length ? days.join(" · ") : "일차 정보 없음";
+  const dateLabel = dates.length ? dates.join(" · ") : "날짜 정보 없음";
+  const sectionLabel = sections.length ? sections.join(" · ") : "시간표";
 
-  drawCardChrome(ctx, "TIMETABLE");
-  ctx.fillStyle = theme.accent;
-  ctx.fillRect(CARD_WIDTH - 246, CARD_HEIGHT - 98, 170, 10);
+  const ink = "#082d63";
+  const sky = "#b8d5e8";
+  const paleSky = "#e7f0f6";
+  const paper = "#f7f3e9";
+  const signal = "#c9d99e";
+  const muted = "#526170";
 
-  ctx.strokeStyle = theme.softLine;
+  ctx.fillStyle = paper;
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  ctx.fillStyle = paleSky;
+  ctx.fillRect(32, 32, CARD_WIDTH - 64, 1080);
+
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = sky;
+  ctx.beginPath();
+  ctx.moveTo(32, 32);
+  ctx.lineTo(310, 32);
+  ctx.bezierCurveTo(218, 166, 146, 230, 32, 282);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(32, 228);
+  ctx.bezierCurveTo(260, 138, 430, 226, 700, 142);
+  ctx.bezierCurveTo(828, 102, 954, 76, 1048, 34);
+  ctx.lineTo(1048, 32);
+  ctx.lineTo(32, 32);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 2;
-  for (let y = 180; y <= 1110; y += 92) {
-    ctx.beginPath();
-    ctx.moveTo(112, y);
-    ctx.lineTo(CARD_WIDTH - 112, y);
-    ctx.stroke();
-  }
-  for (let x = 160; x <= CARD_WIDTH - 160; x += 190) {
-    ctx.beginPath();
-    ctx.moveTo(x, 208);
-    ctx.lineTo(x, 1070);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.moveTo(278, 84);
+  ctx.lineTo(510, 84);
+  ctx.moveTo(570, 84);
+  ctx.lineTo(802, 84);
+  ctx.moveTo(278, 268);
+  ctx.lineTo(802, 268);
+  ctx.stroke();
 
-  ctx.fillStyle = "rgba(255,255,255,0.88)";
-  ctx.fillRect(0, 320, CARD_WIDTH, 650);
-
-  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 548, 850, 66, {
-    size: 58,
-    weight: 950,
-    color: theme.accent,
-    minSize: 34
+  drawFitText(ctx, "◆", CARD_WIDTH / 2, 84, 36, {
+    align: "center",
+    size: 17,
+    weight: 900,
+    color: ink,
+    minSize: 14
   });
 
-  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 720, 820, {
-    align: "center",
-    size: 92,
-    weight: 950,
-    color: theme.ink,
-    minSize: 58
+  drawCenteredMultiline(ctx, `포함 일차: ${dayLabel}\n포함 날짜: ${dateLabel}`, CARD_WIDTH / 2, 224, 920, 28, {
+    size: 25,
+    weight: 900,
+    color: ink,
+    minSize: 17,
+    maxHeight: 72,
+    maxLines: 3,
+    allowEllipsis: false
   });
 
-  drawFitText(ctx, "TIMETABLE", CARD_WIDTH / 2, 820, 620, {
+  drawFitText(ctx, "경기시간표", CARD_WIDTH / 2, 160, 720, {
     align: "center",
-    size: 24,
+    size: 104,
+    weight: 950,
+    color: ink,
+    minSize: 64
+  });
+
+  drawCenteredMultiline(ctx, title, CARD_WIDTH / 2, 446, 860, 58, {
+    size: 50,
+    weight: 900,
+    color: ink,
+    minSize: 30,
+    maxHeight: 132,
+    maxLines: Infinity,
+    allowEllipsis: false
+  });
+
+  drawFitText(ctx, "ATHLETICS  /  MEET GUIDE", CARD_WIDTH / 2, 566, 620, {
+    align: "center",
+    size: 22,
     weight: 800,
-    color: theme.muted,
-    minSize: 18
+    color: muted,
+    minSize: 17
   });
 
-  ctx.strokeStyle = theme.softLine;
+  ctx.fillStyle = signal;
+  roundedRect(ctx, 70, 660, 940, 170, 10);
+  ctx.fill();
+  ctx.fillStyle = ink;
+  ctx.fillRect(70, 660, 18, 170);
+
+  drawCenteredMultiline(ctx, `포함 구분\n${sectionLabel}`, 300, 748, 400, 42, {
+    size: 32,
+    weight: 950,
+    color: ink,
+    minSize: 22,
+    maxHeight: 118,
+    maxLines: 3,
+    allowEllipsis: false
+  });
+  drawFitText(ctx, "일정 한눈에 보기", 970, 748, 390, {
+    align: "right",
+    size: 26,
+    weight: 800,
+    color: muted,
+    minSize: 19
+  });
+
+  const uncertainty = scheduleUncertaintyLabel();
+  if (uncertainty) {
+    drawFitText(ctx, uncertainty, CARD_WIDTH / 2, 612, 880, {
+      align: "center",
+      size: 18,
+      weight: 850,
+      color: "#9a4a16",
+      minSize: 13
+    });
+  }
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(8,45,99,0.34)";
+  ctx.lineWidth = 9;
+  ctx.lineCap = "round";
+  [0, 34, 68, 102].forEach((offset) => {
+    ctx.beginPath();
+    ctx.moveTo(430, 1110 + offset * 0.1);
+    ctx.bezierCurveTo(610, 920 - offset, 822, 914 - offset, 1048, 1030 - offset * 0.2);
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, CARD_WIDTH - 2, CARD_HEIGHT - 2);
+  ctx.strokeStyle = "rgba(8,45,99,0.24)";
+  ctx.strokeRect(32, 32, CARD_WIDTH - 64, CARD_HEIGHT - 64);
   drawScheduleCredit(ctx);
   return canvas;
 }
@@ -1728,12 +2282,14 @@ function renderScheduleTableCanvas(page) {
     let cellX = tableX;
     values.forEach((value, index) => {
       const isLeft = index === 1 || index === 2;
-      drawFitText(ctx, value, isLeft ? cellX + 22 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 34, {
-        align: isLeft ? "left" : "center",
+      drawCenteredMultiline(ctx, value, isLeft ? cellX + colW[index] / 2 : cellX + colW[index] / 2, y + rowH / 2, colW[index] - 18, 20, {
         size: index === 0 ? 29 : 27,
         weight: index === 0 || index === 1 ? 900 : 760,
         color: theme.ink,
-        minSize: 18
+        minSize: 14,
+        maxHeight: rowH - 8,
+        maxLines: Infinity,
+        allowEllipsis: false
       });
       cellX += colW[index];
     });
@@ -1779,8 +2335,8 @@ function drawScheduleWaves(ctx) {
 }
 
 function drawDesignedScheduleHeader(ctx, page) {
-  const day = normalize(page?.day) || normalize(els.scheduleDayInput.value) || "일차 확인";
-  const date = normalize(page?.date) || normalize(els.scheduleDateInput.value) || "날짜 확인";
+  const day = normalize(page?.day) || normalize(els.scheduleDayInput.value) || "일차 정보 없음";
+  const date = normalize(page?.date) || normalize(els.scheduleDateInput.value) || "날짜 정보 없음";
   const navy = "#06285d";
 
   drawScheduleWaves(ctx);
@@ -1848,7 +2404,10 @@ function drawDesignedScheduleCell(ctx, text, x, y, width, height, options = {}) 
     weight: options.weight || 760,
     color: options.color || "#101820",
     minSize: options.minSize || 13,
-    lineHeight: options.lineHeight || 1.03
+    lineHeight: options.lineHeight || 1.08,
+    maxHeight: Math.max(18, height - 4),
+    maxLines: Infinity,
+    allowEllipsis: false
   });
 }
 
@@ -1946,12 +2505,17 @@ function renderDesignedScheduleCanvas(page) {
   const tableBottom = CARD_HEIGHT - 64;
   const gutter = 0;
   const halfW = tableW / 2;
+  const hasColumns = rows.some((row) => /^(?:left|right|l|r)$/i.test(normalize(row.column)));
   const leftCount = Math.ceil(rows.length / 2);
-  const leftRows = rows.slice(0, leftCount);
-  const rightRows = rows.slice(leftCount);
-  const maxRows = Math.max(leftRows.length, rightRows.length, 14, 1);
+  const leftRows = hasColumns
+    ? rows.filter((row) => /^(?:left|l)$/i.test(normalize(row.column)))
+    : rows.slice(0, leftCount);
+  const rightRows = hasColumns
+    ? rows.filter((row) => /^(?:right|r)$/i.test(normalize(row.column)))
+    : rows.slice(leftCount);
+  const maxRows = Math.max(leftRows.length, rightRows.length, 1);
   const headerH = 50;
-  const rowH = Math.max(31, Math.min(48, Math.floor((tableBottom - tableY - headerH) / maxRows)));
+  const rowH = scheduleRowHeight(rows);
   const usedH = headerH + maxRows * rowH;
 
   ctx.fillStyle = "rgba(255,255,255,0.92)";
@@ -2099,7 +2663,7 @@ function renderScheduleImageCanvas(page) {
 
 function renderScheduleCanvas(page) {
   if (!page) return renderScheduleEmptyCanvas();
-  if (page.type === "cover") return renderScheduleCoverCanvas();
+  if (page.type === "cover") return renderScheduleCoverCanvas(page);
   if (page.type === "scheduleDesigned") return renderDesignedScheduleCanvas(page);
   if (page.type === "scheduleDesignedPhoto") return renderDesignedSchedulePhotoCanvas(page);
   if (page.type === "scheduleTable") return renderScheduleTableCanvas(page);
@@ -2110,14 +2674,21 @@ function renderScheduleCard() {
   applyDesignToPreview();
   const pages = state.schedule.pages;
   const page = activeSchedulePage();
-  const previewCanvas = renderScheduleCanvas(page);
+  let previewCanvas;
+  try {
+    previewCanvas = renderScheduleCanvas(page);
+  } catch (error) {
+    state.schedule.validationError = error.message;
+    previewCanvas = renderScheduleEmptyCanvas();
+  }
   els.schedulePreviewImage.src = previewCanvas.toDataURL("image/png");
   els.pageInfo.textContent = pages.length ? `${state.currentPage + 1} / ${pages.length}` : "0 / 0";
   els.prevPage.disabled = state.currentPage <= 0;
-  els.nextPage.disabled = state.currentPage >= pages.length - 1;
-  els.downloadCurrent.disabled = !pages.length;
-  els.downloadAll.disabled = !pages.length;
+  els.nextPage.disabled = !pages.length || state.currentPage >= pages.length - 1;
+  els.downloadCurrent.disabled = !canExportSchedule();
+  els.downloadAll.disabled = !canExportSchedule();
   els.rowCount.textContent = `${pages.length}장`;
+  applyPreviewScale();
 }
 
 async function buildScheduleFromInput() {
@@ -2136,6 +2707,16 @@ async function buildScheduleFromTableInputs() {
     return;
   }
 
+  const validationError = validateScheduleContent(rows);
+  if (validationError) {
+    state.schedule.validationError = validationError;
+    state.schedule.pages = [];
+    state.schedule.rows = rows;
+    renderScheduleCard();
+    setStatus(`시간표를 만들 수 없습니다. ${validationError}`);
+    return;
+  }
+
   setMode("schedule");
   setScheduleBusy(true);
   setStatus("시간표 카드를 1080x1350 양식으로 만드는 중입니다.");
@@ -2145,6 +2726,7 @@ async function buildScheduleFromTableInputs() {
     state.schedule.sourceCanvas = null;
     state.schedule.rows = rows;
     state.schedule.pages = pages;
+    state.schedule.validationError = "";
     state.currentPage = 0;
     renderScheduleCard();
     setStatus(`${rows.length}개 일정을 ${pages.length}장 시간표 카드로 만들었습니다.`);
@@ -2165,30 +2747,63 @@ async function buildScheduleFromPhotos() {
 
   setMode("schedule");
   setScheduleBusy(true);
-  setStatus(`${files.length}장 시간표 사진을 카드로 정리하는 중입니다.`);
+  const validationError = validateScheduleContent([]);
+  if (validationError) {
+    state.schedule.validationError = validationError;
+    state.schedule.pages = [];
+    renderScheduleCard();
+    setScheduleBusy(false);
+    setStatus(`시간표를 만들 수 없습니다. ${validationError}`);
+    return;
+  }
+  setStatus(`${files.length}개 사진/PDF를 원본 보존 카드로 정리하는 중입니다.`);
 
   try {
     const images = [];
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
-      const image = await loadImageFromFile(file);
-      const canvas = trimScheduleCanvas(canvasFromImage(image));
-      const section = files.length === 1 ? "시간표" : SCHEDULE_SECTION_LABELS[index] || `시간표 ${index + 1}`;
-      images.push({ fileName: file.name || `schedule_${index + 1}`, canvas, section });
+      const canvases = await loadScheduleCanvases(file, ({ pageNumber, pageCount }) => {
+        updateScheduleProgress(index, files.length, pageNumber, pageCount);
+      });
+      const inferred = inferScheduleImageMeta(file.name || "");
+      canvases.forEach((rawCanvas, pageIndex) => {
+        const canvas = trimScheduleCanvas(rawCanvas);
+        const suffix = canvases.length > 1 ? `_${pageIndex + 1}페이지` : "";
+        const section = inferred.section || "시간표";
+        images.push({
+          fileName: `${file.name || `schedule_${index + 1}`}${suffix}`,
+          canvas,
+          section,
+          day: inferred.day,
+          date: inferred.date
+        });
+      });
     }
 
     state.schedule.images = images;
     state.schedule.sourceCanvas = images[0]?.canvas || null;
     state.schedule.rows = [];
     state.schedule.pages = buildSchedulePagesFromPhotos(images);
+    state.schedule.draft = null;
+    state.schedule.draftAcknowledged = true;
+    state.schedule.validationError = "";
     state.currentPage = 0;
     renderScheduleCard();
-    setStatus(`${images.length}장 사진을 ${state.schedule.pages.length}장 시간표 카드로 만들었습니다.`);
+    clearScheduleProgress();
+    setStatus(`${images.length}개 사진/PDF 페이지를 ${state.schedule.pages.length}장 원본 보존 카드로 만들었습니다.`);
   } catch (error) {
     console.error(error);
-    setStatus(`시간표 사진 카드를 만들지 못했습니다. ${error.message}`);
+    state.schedule.images = [];
+    state.schedule.sourceCanvas = null;
+    state.schedule.rows = [];
+    state.schedule.pages = [];
+    state.currentPage = 0;
+    renderScheduleCard();
+    clearScheduleProgress();
+    setStatus(`사진/PDF 카드를 만들지 못했습니다. ${error.message}`);
   } finally {
     setScheduleBusy(false);
+    clearScheduleProgress();
   }
 }
 
@@ -2199,7 +2814,8 @@ function rebuildDesignedSchedulePreview() {
   } else {
     const { pages, rows } = buildDesignedSchedulePages();
     state.schedule.rows = rows;
-    state.schedule.pages = pages;
+    state.schedule.validationError = validateScheduleContent(rows);
+    state.schedule.pages = state.schedule.validationError ? [] : pages;
   }
   state.currentPage = Math.min(state.currentPage, Math.max(0, state.schedule.pages.length - 1));
   renderScheduleCard();
@@ -2212,7 +2828,7 @@ function renderCanvas(page) {
   const ctx = canvas.getContext("2d");
   const theme = currentTheme();
 
-  drawCardChrome(ctx, "RESULTS");
+  drawCardChrome(ctx, provisionalResultLabel() ? "RESULTS · 잠정" : "RESULTS");
 
   const headerLayout = drawResultHeader(ctx, page);
 
@@ -2275,12 +2891,17 @@ function renderCanvas(page) {
       const isLeft = isRelay ? index === 1 || index === 2 : index === 2;
       const isRecord = index === 3;
       if (isRelay && index === 2) {
-        drawRelayNames(ctx, value, cellX + 24, y + rowH / 2, colW[index] - 36, rowH - 18, {
+        drawRelayRoster(ctx, value, cellX + 24, y + rowH / 2, colW[index] - 36, rowH - 18, {
           size: rowH <= 86 ? 29 : 31,
           minSize: 17,
           weight: 820,
           color: theme.ink
         });
+        cellX += colW[index];
+        return;
+      }
+      if (isRecord) {
+        drawResultRecord(ctx, row, cellX, y, colW[index], rowH, theme.ink);
         cellX += colW[index];
         return;
       }
@@ -2457,6 +3078,10 @@ async function createZip(files) {
 }
 
 async function downloadAllPages() {
+  if (state.resultLoading) {
+    setStatus("결과를 불러오는 중에는 저장할 수 없습니다.");
+    return;
+  }
   const pages = state.pages
     .map((page, index) => ({ page, index }))
     .filter(({ page }) => page.rows.length);
@@ -2489,6 +3114,12 @@ async function downloadAllPages() {
 }
 
 async function downloadAllSchedulePages() {
+  if (!canExportSchedule()) {
+    setStatus(hasUnacknowledgedScheduleDraft()
+      ? "확인 필요 항목을 검토하고 확인란을 선택한 뒤 저장해주세요."
+      : state.schedule.validationError || "먼저 시간표 카드를 만들어주세요.");
+    return;
+  }
   const pages = state.schedule.pages.map((page, index) => ({ page, index }));
   if (!pages.length) return;
 
@@ -2539,7 +3170,10 @@ els.tournamentSelect.addEventListener("change", () => {
     state.tournaments.find((tournament) => tournament.id === els.tournamentSelect.value) ||
     state.selectedTournament;
   state.selectedEvent = null;
+  state.resultRequestToken += 1;
+  state.resultLoading = false;
   state.result = null;
+  state.pages = [];
   state.currentPage = 0;
   state.manualTitle = false;
   state.manualSubtitle = false;
@@ -2575,12 +3209,15 @@ els.designSelect.addEventListener("change", () => {
 });
 
 els.scheduleTitleInput.addEventListener("input", () => {
+  markScheduleDraftDirty();
   if (state.mode === "schedule") {
-    renderScheduleCard();
+    if (state.schedule.pages.length) rebuildDesignedSchedulePreview();
+    else renderScheduleCard();
   }
 });
 
 els.scheduleSourceMode.addEventListener("change", () => {
+  markScheduleDraftDirty();
   if (state.mode === "schedule" && state.schedule.pages.length) {
     rebuildDesignedSchedulePreview();
   }
@@ -2591,24 +3228,29 @@ els.schedulePhotoInput.addEventListener("change", () => {
   if (count) {
     setMode("schedule");
     els.scheduleSourceMode.value = "photo";
-    setStatus(`${count}장 시간표 사진을 선택했습니다.`);
+    setStatus(`${count}개 사진/PDF를 선택했습니다.`);
   }
 });
 
 els.scheduleDayInput.addEventListener("input", () => {
+  markScheduleDraftDirty();
   if (state.mode === "schedule") {
-    renderScheduleCard();
+    if (state.schedule.pages.length) rebuildDesignedSchedulePreview();
+    else renderScheduleCard();
   }
 });
 
 els.scheduleDateInput.addEventListener("input", () => {
+  markScheduleDraftDirty();
   if (state.mode === "schedule") {
-    renderScheduleCard();
+    if (state.schedule.pages.length) rebuildDesignedSchedulePreview();
+    else renderScheduleCard();
   }
 });
 
 [els.scheduleTrackInput, els.scheduleFieldInput].forEach((input) => {
   input.addEventListener("input", () => {
+    markScheduleDraftDirty();
     if (state.mode === "schedule" && state.schedule.pages.length) {
       rebuildDesignedSchedulePreview();
     }
@@ -2616,8 +3258,10 @@ els.scheduleDateInput.addEventListener("input", () => {
 });
 
 els.scheduleCoverInput.addEventListener("change", () => {
+  markScheduleDraftDirty();
   if (state.schedule.pages.length) {
     rebuildDesignedSchedulePreview();
+    setStatus(`${state.schedule.pages.length}장 시간표 카드로 업데이트했습니다.`);
   }
 });
 
@@ -2684,8 +3328,18 @@ els.nextPage.addEventListener("click", () => {
 els.downloadCurrent.addEventListener("click", async () => {
   try {
     if (state.mode === "schedule") {
+      if (!canExportSchedule()) {
+        setStatus(hasUnacknowledgedScheduleDraft()
+          ? "확인 필요 항목을 검토하고 확인란을 선택한 뒤 저장해주세요."
+          : state.schedule.validationError || "먼저 시간표 카드를 만들어주세요.");
+        return;
+      }
       await downloadSchedulePage(activeSchedulePage(), state.currentPage);
     } else {
+      if (state.resultLoading || !currentPage().rows.length) {
+        setStatus("현재 결과가 준비된 뒤 저장해주세요.");
+        return;
+      }
       await downloadPage(currentPage(), state.currentPage);
     }
   } catch (error) {
@@ -2701,6 +3355,8 @@ els.downloadAll.addEventListener("click", () => {
     downloadAllPages();
   }
 });
+
+window.addEventListener("resize", applyPreviewScale);
 
 applyDesignToPreview();
 renderSample("샘플 카드가 준비되었습니다.");

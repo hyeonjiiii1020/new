@@ -233,8 +233,13 @@
   }
 
   function applyDraft(result) {
+    const options = arguments[1] || {};
     if (!result.ok) {
       setStatus("초안에 확인이 필요한 행이 있습니다. 수정 후 다시 검토해주세요.");
+      return false;
+    }
+    if (!options.acknowledged) {
+      setStatus("초안의 확인 필요 항목을 검토한 뒤 확인란을 선택해주세요.");
       return false;
     }
 
@@ -249,6 +254,16 @@
     setValue("scheduleTrackInput", formatRows(result.draft.track));
     setValue("scheduleFieldInput", formatRows(result.draft.field));
 
+    const draftState = {
+      raw: String(options.raw || ""),
+      draft: result.draft,
+      acknowledged: true
+    };
+    root.scheduleDraftState = draftState;
+    if (typeof root.dispatchEvent === "function" && typeof root.CustomEvent === "function") {
+      root.dispatchEvent(new root.CustomEvent("schedule-draft-applied", { detail: draftState }));
+    }
+
     const buildButton = document.getElementById("buildScheduleBtn");
     if (buildButton) buildButton.click();
     setStatus(`검토한 초안으로 트랙 ${result.draft.track.length}개, 필드 ${result.draft.field.length}개를 반영했습니다.`);
@@ -260,27 +275,45 @@
     const review = document.getElementById("scheduleDraftReview");
     const reviewButton = document.getElementById("reviewScheduleDraftBtn");
     const applyButton = document.getElementById("applyScheduleDraftBtn");
-    if (!draftInput || !review || !reviewButton || !applyButton) return;
+    const acknowledgment = document.getElementById("scheduleDraftAcknowledge");
+    if (!draftInput || !review || !reviewButton || !applyButton || !acknowledgment) return;
 
     let lastResult = null;
+    let reviewedSource = "";
 
     reviewButton.addEventListener("click", () => {
       lastResult = parseScheduleDraft(draftInput.value);
+      reviewedSource = draftInput.value;
+      acknowledgment.checked = false;
       renderReview(review, lastResult);
       setStatus(lastResult.ok ? "AI 추출 초안을 검토했습니다. 이상 없으면 반영하세요." : lastResult.message);
     });
 
     applyButton.addEventListener("click", () => {
-      const result = lastResult || parseScheduleDraft(draftInput.value);
-      lastResult = result;
+      const reviewed = Boolean(lastResult) && reviewedSource === draftInput.value;
+      const result = reviewed ? lastResult : parseScheduleDraft(draftInput.value);
+      if (!reviewed) {
+        lastResult = result;
+        reviewedSource = "";
+      }
       renderReview(review, result);
-      applyDraft(result);
+      applyDraft(result, { acknowledged: reviewed && acknowledgment.checked, raw: draftInput.value });
     });
 
     draftInput.addEventListener("input", () => {
       lastResult = null;
+      reviewedSource = "";
+      acknowledgment.checked = false;
       review.classList.remove("is-error");
       review.textContent = "AI가 읽은 초안을 붙여넣고 검토해주세요.";
+    });
+
+    acknowledgment.addEventListener("change", () => {
+      if (!acknowledgment.checked) return;
+      if (!lastResult || reviewedSource !== draftInput.value) {
+        acknowledgment.checked = false;
+        setStatus("먼저 초안 검토를 완료해주세요.");
+      }
     });
   }
 
