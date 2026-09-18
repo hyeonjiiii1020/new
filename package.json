@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node test/schedule-automation.test.js && node test/timetable-source.test.js"
+    "test": "node test/schedule-automation.test.js && node test/timetable-source.test.js && node test/boeun-tournament.test.js"
   },
   "engines": {
     "node": ">=18"

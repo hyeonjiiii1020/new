@@ -85,6 +85,30 @@ const TOURNAMENTS = [
     domestic: "0",
     resultType: "TRM",
     tabs_id: "toKor"
+  },
+  {
+    id: "boeun-grade-2026",
+    name: "2026 제7회 전국초.중.고 학년별 육상경기대회",
+    period: "2026-09-18 ~ 2026-09-22",
+    place: "보은",
+    reg_year: "2026",
+    to_cd: "E01595008E",
+    gubun: "E",
+    domestic: "0",
+    resultType: "TRM",
+    tabs_id: "toKor"
+  },
+  {
+    id: "boeun-grade-combined-2026",
+    name: "2026 제7회 전국초.중.고 학년별 육상경기대회(통합경기)",
+    period: "2026-09-18 ~ 2026-09-22",
+    place: "보은",
+    reg_year: "2026",
+    to_cd: "E015960081",
+    gubun: "E",
+    domestic: "0",
+    resultType: "TRM",
+    tabs_id: "toKor"
   }
 ];
 
